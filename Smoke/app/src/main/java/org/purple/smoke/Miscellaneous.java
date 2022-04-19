@@ -40,7 +40,6 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
-import android.support.v4.content.LocalBroadcastManager;
 import android.text.InputType;
 import android.util.Base64;
 import android.util.LayoutDirection;
@@ -985,7 +984,7 @@ public abstract class Miscellaneous
 	    (AlertDialog.BUTTON_POSITIVE);
 
 	button1.setEnabled(false);
-	switch1.setLayoutDirection(LayoutDirection.RTL);
+	switch1.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
 	switch1.setOnCheckedChangeListener
 	    (new CompoundButton.OnCheckedChangeListener()
 	    {
@@ -1028,7 +1027,7 @@ public abstract class Miscellaneous
 	    {
 		SwitchCompat switch1 = new SwitchCompat(context);
 
-		switch1.setLayoutDirection(LayoutDirection.RTL);
+		switch1.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
 		switch1.setLayoutParams
 		    (new TableRow.LayoutParams(0,
 					       LayoutParams.WRAP_CONTENT,
