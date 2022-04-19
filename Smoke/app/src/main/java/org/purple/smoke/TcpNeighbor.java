@@ -168,11 +168,12 @@ public class TcpNeighbor extends Neighbor
 	{
 	    m_bytesRead.set(0L);
 	    m_bytesWritten.set(0L);
+	    m_disconnected.set(false);
 	    m_lastParsed.set(System.currentTimeMillis());
 	    m_lastTimeRead.set(System.nanoTime());
 
 	    InetSocketAddress inetSocketAddress = new InetSocketAddress
-		(m_ipAddress, Integer.parseInt(m_ipPort));
+		(m_ipAddress, m_ipPort.get());
 
 	    if(m_proxyInetSocketAddress == null)
 	    {
@@ -183,8 +184,6 @@ public class TcpNeighbor extends Neighbor
 	    }
 	    else
 	    {
-		Socket socket = null;
-
 		if(m_proxyType.equals("HTTP"))
 		    m_socket = new Socket
 			(new Proxy(Proxy.Type.HTTP, m_proxyInetSocketAddress));
@@ -197,6 +196,7 @@ public class TcpNeighbor extends Neighbor
 		m_socket.connect(inetSocketAddress, CONNECTION_TIMEOUT);
 	    }
 
+	    m_socket.setSoLinger(true, 0);
 	    m_socket.setSoTimeout(CONNECTION_TIMEOUT);
 	    m_socket.setTcpNoDelay(true);
 	    m_startTime.set(System.nanoTime());
@@ -292,7 +292,7 @@ public class TcpNeighbor extends Neighbor
 	    {
 		try
 		{
-		    if(!connected() && !m_aborted.get())
+		    if(!connected() && !m_disconnected.get())
 			synchronized(m_mutex)
 			{
 			    try
@@ -304,7 +304,7 @@ public class TcpNeighbor extends Neighbor
 			    }
 			}
 
-		    if(!connected() || m_aborted.get())
+		    if(!connected() || m_disconnected.get())
 			return;
 		    else if(m_error)
 		    {

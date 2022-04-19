@@ -30,12 +30,10 @@ package org.purple.smoke;
 import android.os.Environment;
 import java.io.File;
 import java.io.RandomAccessFile;
-import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class SteamWriter
 {
@@ -180,32 +178,39 @@ public class SteamWriter
 	return m_files.size();
     }
 
-    public boolean write(byte fileIdentity[], byte packet[], long offset)
+    public long write(byte fileIdentity[], byte packet[], long offset)
     {
 	if(fileIdentity == null ||
 	   fileIdentity.length == 0 ||
 	   offset < 0 ||
 	   packet == null ||
 	   packet.length == 0)
-	    return false;
+	    return -1L;
 
 	int oid = s_databaseHelper.steamOidFromFileIdentity
 	    (s_cryptography, fileIdentity);
 
 	if(oid == -1)
-	    return false;
+	    return -1L;
 
 	SteamElement steamElement = s_databaseHelper.readSteam
 	    (s_cryptography, -1, oid - 1);
 
 	if(steamElement == null)
-	    return false;
+	    return -1L;
 	else if(offset + packet.length > steamElement.m_fileSize)
 	    /*
 	    ** Really?
 	    */
 
-	    return false;
+	    return -1L;
+	else if(steamElement.m_status.equals("completed") &&
+		s_databaseHelper.isSteamLocked(oid))
+	    /*
+	    ** Completed and locked! The other participant should halt.
+	    */
+
+	    return steamElement.m_fileSize;
 
 	RandomAccessFile randomAccessFile = null;
 
@@ -226,7 +231,7 @@ public class SteamWriter
 
 	    if(offset == 0)
 		/*
-		** Erase the ephemeral key.
+		** Erase the ephemeral keys.
 		*/
 
 		s_databaseHelper.writeEphemeralSteamKeys
@@ -241,7 +246,7 @@ public class SteamWriter
 		     "",
 		     oid,
 		     offset + packet.length);
-		return true;
+		return offset;
 	    }
 
 	    try
@@ -271,7 +276,7 @@ public class SteamWriter
 	}
 	catch(Exception exception)
 	{
-	    return false;
+	    return -1L;
 	}
 	finally
 	{
@@ -285,6 +290,6 @@ public class SteamWriter
 	    }
 	}
 
-	return true;
+	return offset;
     }
 }

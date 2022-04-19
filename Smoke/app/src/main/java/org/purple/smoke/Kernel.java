@@ -41,9 +41,6 @@ import android.os.PowerManager.WakeLock;
 import android.os.PowerManager;
 import android.util.Base64;
 import android.util.SparseArray;
-
-import androidx.localbroadcastmanager.content.LocalBroadcastManager;
-
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
@@ -53,9 +50,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -101,30 +100,21 @@ public class Kernel
 		    ** interval.
 		    */
 
-		    m_steamsMutex.readLock().lock();
-
 		    try
 		    {
-			int size = m_steams.size();
-
-			for(int i = 0; i < size; i++)
+			for(Integer key : m_steams.keySet())
 			{
-			    int j = m_steams.keyAt(i);
+			    SteamReader value = m_steams.get(key);
 
-			    if(m_steams.get(j) != null &&
-			       m_steams.get(j).getOid() == oid)
+			    if(value != null && oid == value.getOid())
 			    {
-				m_steams.get(j).setReadInterval(readInterval);
-				return;
+				value.setReadInterval(readInterval);
+				break;
 			    }
 			}
 		    }
 		    catch(Exception exception)
 		    {
-		    }
-		    finally
-		    {
-			m_steamsMutex.readLock().unlock();
 		    }
 		}
 
@@ -139,9 +129,13 @@ public class Kernel
     private AtomicLong m_chatTemporaryIdentityLastTick = null;
     private AtomicLong m_shareSipHashIdIdentity = null;
     private AtomicLong m_shareSipHashIdIdentityLastTick = null;
+    private ConcurrentHashMap<Integer, Neighbor> m_neighbors = null;
+    private ConcurrentHashMap<Integer, SteamReader> m_steams = null;
     private ConcurrentHashMap<String, Juggernaut> m_juggernauts = null;
     private ConcurrentHashMap<String, ParticipantCall> m_callQueue = null;
     private ConcurrentHashMap<String, byte[]> m_fireStreams = null;
+    private ConcurrentLinkedQueue<ParticipantCall> m_arsonCallQueue = null;
+    private ScheduledExecutorService m_arsonCallScheduler = null;
     private ScheduledExecutorService m_callScheduler = null;
     private ScheduledExecutorService m_messagesToSendScheduler = null;
     private ScheduledExecutorService m_neighborsScheduler = null;
@@ -159,18 +153,13 @@ public class Kernel
     private byte m_chatMessageRetrievalIdentity[] = null;
     private final KernelBroadcastReceiver m_receiver =
 	new KernelBroadcastReceiver();
+    private final Object m_arsonCallSchedulerMutex = new Object();
     private final Object m_callSchedulerMutex = new Object();
     private final Object m_messagesToSendSchedulerMutex = new Object();
     private final ReentrantReadWriteLock m_chatMessageRetrievalIdentityMutex =
 	new ReentrantReadWriteLock();
     private final ReentrantReadWriteLock m_messagesToSendMutex =
 	new ReentrantReadWriteLock();
-    private final ReentrantReadWriteLock m_neighborsMutex =
-	new ReentrantReadWriteLock();
-    private final ReentrantReadWriteLock m_steamsMutex =
-	new ReentrantReadWriteLock();
-    private final SparseArray<Neighbor> m_neighbors = new SparseArray<> ();
-    private final SparseArray<SteamReader> m_steams = new SparseArray<> ();
     private final SteamWriter m_steamWriter = new SteamWriter();
     private final static Cryptography s_cryptography =
 	Cryptography.getInstance();
@@ -179,6 +168,7 @@ public class Kernel
 	new SimpleDateFormat("MMddyyyyHHmmss", Locale.getDefault());
     private final static SipHash s_congestionSipHash = new SipHash
 	(Cryptography.randomBytes(SipHash.KEY_LENGTH));
+    private final static boolean m_arsonImplemented = false;
     private final static int CONGESTION_LIFETIME = 65; // 65 seconds.
     private final static int FIRE_TIME_DELTA = 30000; // 30 seconds.
     private final static int MCELIECE_OUTPUT_SIZES[] = {304,   // 48 bytes.
@@ -223,16 +213,19 @@ public class Kernel
 
     private Kernel()
     {
+	m_arsonCallQueue = new ConcurrentLinkedQueue<> ();
 	m_callQueue = new ConcurrentHashMap<> ();
 	m_chatTemporaryIdentityLastTick = new AtomicLong
 	    (System.currentTimeMillis());
 	m_fireStreams = new ConcurrentHashMap<> ();
 	m_juggernauts = new ConcurrentHashMap<> ();
 	m_messagesToSend = new ArrayList<> ();
+	m_neighbors = new ConcurrentHashMap<> ();
 	m_shareSipHashIdIdentity = new AtomicLong(0L);
 	m_shareSipHashIdIdentityLastTick = new AtomicLong
 	    (System.currentTimeMillis());
 	m_steamKeyExchange = new SteamKeyExchange();
+	m_steams = new ConcurrentHashMap<> ();
 	m_time = new Time();
 
 	try
@@ -253,13 +246,30 @@ public class Kernel
 
 	try
 	{
+	    PowerManager powerManager = (PowerManager)
+		Smoke.getApplication().getSystemService(Context.POWER_SERVICE);
+
+	    if(powerManager != null)
+		m_wakeLock = powerManager.newWakeLock
+		    (PowerManager.PARTIAL_WAKE_LOCK,
+		     "Smoke:SmokeWakeLockTag");
+
+	    if(m_wakeLock != null)
+		m_wakeLock.setReferenceCounted(false);
+	}
+	catch(Exception exception)
+	{
+	}
+
+	try
+	{
 	    WifiManager wifiManager = (WifiManager)
-		Smoke.getApplication().getApplicationContext().
-		getSystemService(Context.WIFI_SERVICE);
+		Smoke.getApplication().getSystemService(Context.WIFI_SERVICE);
 
 	    if(wifiManager != null)
 		m_wifiLock = wifiManager.createWifiLock
-		    (WifiManager.WIFI_MODE_FULL_HIGH_PERF, "SmokeWiFiLockTag");
+		    (WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+		     "Smoke:SmokeWiFiLockTag");
 
 	    if(m_wifiLock != null)
 	    {
@@ -291,8 +301,6 @@ public class Kernel
 		continue;
 	    else
 	    {
-		m_neighborsMutex.readLock().lock();
-
 		try
 		{
 		    if(m_neighbors.get(neighborElement.m_oid) != null)
@@ -301,15 +309,11 @@ public class Kernel
 		catch(Exception exception)
 		{
 		}
-		finally
-		{
-		    m_neighborsMutex.readLock().unlock();
-		}
 
-		if(neighborElement.m_statusControl.toLowerCase().
-		   equals("delete") ||
-		   neighborElement.m_statusControl.toLowerCase().
-		   equals("disconnect"))
+		if(neighborElement.m_statusControl.
+		   equalsIgnoreCase("delete") ||
+		   neighborElement.m_statusControl.
+		   equalsIgnoreCase("disconnect"))
 		{
 		    if(neighborElement.m_statusControl.toLowerCase().
 		       equals("disconnect"))
@@ -389,18 +393,12 @@ public class Kernel
 	    if(neighbor == null)
 		continue;
 
-	    m_neighborsMutex.writeLock().lock();
-
 	    try
 	    {
-		m_neighbors.append(neighborElement.m_oid, neighbor);
+		m_neighbors.put(neighborElement.m_oid, neighbor);
 	    }
 	    catch(Exception exception)
 	    {
-	    }
-	    finally
-	    {
-		m_neighborsMutex.writeLock().unlock();
 	    }
 	}
 
@@ -409,6 +407,114 @@ public class Kernel
 
     private void prepareSchedulers()
     {
+	if(m_arsonCallScheduler == null && m_arsonImplemented)
+	{
+	    m_arsonCallScheduler = Executors.newSingleThreadScheduledExecutor();
+	    m_arsonCallScheduler.scheduleAtFixedRate(new Runnable()
+	    {
+		@Override
+		public void run()
+		{
+		    try
+		    {
+			if(m_arsonCallQueue.isEmpty())
+			    synchronized(m_arsonCallSchedulerMutex)
+			    {
+				try
+				{
+				    m_arsonCallSchedulerMutex.wait
+					(WAIT_TIMEOUT);
+				}
+				catch(Exception exception)
+				{
+				}
+			    }
+
+			try
+			{
+			    /*
+			    ** Remove expired calls.
+			    */
+
+			    Iterator<ParticipantCall> iterator =
+				m_arsonCallQueue.iterator();
+
+			    while(iterator.hasNext())
+			    {
+				ParticipantCall value = iterator.next();
+
+				if(value == null)
+				    iterator.remove();
+				else if((System.nanoTime() -
+					 value.m_startTime) / 1000000L >
+					CALL_LIFETIME)
+				    iterator.remove();
+			    }
+			}
+			catch(Exception exception)
+			{
+			}
+
+			ParticipantCall participantCall = null;
+
+			try
+			{
+			    Iterator<ParticipantCall> iterator =
+				m_arsonCallQueue.iterator();
+
+			    while(iterator.hasNext())
+			    {
+				ParticipantCall value = iterator.next();
+
+				if(value == null)
+				{
+				    iterator.remove();
+				    continue;
+				}
+				else if(value.m_keyPair != null)
+				    continue;
+
+				break;
+			    }
+			}
+			catch(Exception exception)
+			{
+			}
+
+			if(participantCall == null)
+			    return;
+			else if(participantCall.m_keyPair == null)
+			    participantCall.preparePrivatePublicKeys();
+
+			if(isConnected())
+			{
+			    byte publicKeyType = Cryptography.
+				MESSAGES_KEY_TYPES[0]; // McEliece
+
+			    /*
+			    ** Place a call request to all neighbors.
+			    */
+
+			    byte bytes[] = Messages.callMessage
+				(s_cryptography,
+				 participantCall.m_sipHashId,
+				 participantCall.m_keyPair.getPublic().
+				 getEncoded(),
+				 publicKeyType,
+				 Messages.ARSON_CALL_HALF_AND_HALF_TAGS[0]);
+
+			    if(bytes != null)
+				scheduleSend
+				    (Messages.bytesToMessageString(bytes));
+			}
+		    }
+		    catch(Exception exception)
+		    {
+		    }
+		}
+	    }, 1500L, CALL_INTERVAL, TimeUnit.MILLISECONDS);
+	}
+
 	if(m_callScheduler == null)
 	{
 	    m_callScheduler = Executors.newSingleThreadScheduledExecutor();
@@ -436,8 +542,8 @@ public class Kernel
 
 			/*
 			** Allow the UI to respond to calling requests
-			** while the kernel attempts to generate
-			** ephemeral keys.
+			** while the kernel attempts to generate ephemeral
+			** keys.
 			*/
 
 			try
@@ -453,13 +559,20 @@ public class Kernel
 			    {
 				ParticipantCall value = m_callQueue.get(key);
 
-				if(value == null ||
-				   (System.nanoTime() -
-				    value.m_startTime) / 1000000L >
-				   CALL_LIFETIME)
+				if(value == null)
+				    m_callQueue.remove(key);
+				else if((System.nanoTime() -
+					 value.m_startTime) / 1000000L >
+					CALL_LIFETIME)
 				    m_callQueue.remove(key);
 			    }
+			}
+			catch(Exception exception)
+			{
+			}
 
+			try
+			{
 			    /*
 			    ** Discover a pending call.
 			    */
@@ -499,7 +612,7 @@ public class Kernel
 			if(participantCall == null)
 			    return;
 			else
-			    participantCall.preparePrivatePublicKey();
+			    participantCall.preparePrivatePublicKeys();
 
 			try
 			{
@@ -517,12 +630,12 @@ public class Kernel
 			if(isConnected())
 			{
 			    byte publicKeyType = Cryptography.
-				MESSAGES_KEY_TYPES[0];
+				MESSAGES_KEY_TYPES[0]; // McEliece
 
 			    if(participantCall.m_algorithm ==
 			       ParticipantCall.Algorithms.RSA)
-				publicKeyType =
-				    Cryptography.MESSAGES_KEY_TYPES[1];
+				publicKeyType = Cryptography.
+				    MESSAGES_KEY_TYPES[1];
 
 			    /*
 			    ** Place a call request to all neighbors.
@@ -996,7 +1109,8 @@ public class Kernel
 		{
 		    try
 		    {
-			if(!isConnected())
+			if(!State.getInstance().isAuthenticated() ||
+			   !isConnected())
 			    return;
 
 			if(m_state == 0x00)
@@ -1129,7 +1243,9 @@ public class Kernel
 		@Override
 		public void run()
 		{
-		    if(isConnected() && s_cryptography.ozoneMacKey() != null)
+		    if(State.getInstance().isAuthenticated() &&
+		       isConnected() &&
+		       s_cryptography.ozoneMacKey() != null)
 			retrieveChatMessages("");
 		}
 	    }, 10000L, REQUEST_MESSAGES_INTERVAL, TimeUnit.MILLISECONDS);
@@ -1145,7 +1261,9 @@ public class Kernel
 		{
 		    try
 		    {
-			if(State.getInstance().silent() || !isConnected())
+			if(!State.getInstance().isAuthenticated() ||
+			   State.getInstance().silent() ||
+			   !isConnected())
 			    return;
 
 			ArrayList<ParticipantElement> arrayList =
@@ -1248,8 +1366,6 @@ public class Kernel
 		continue;
 	    else
 	    {
-		m_steamsMutex.readLock().lock();
-
 		try
 		{
 		    if(m_steams.get(steamElement.m_oid) != null)
@@ -1257,10 +1373,6 @@ public class Kernel
 		}
 		catch(Exception exception)
 		{
-		}
-		finally
-		{
-		    m_steamsMutex.readLock().unlock();
 		}
 	    }
 
@@ -1283,18 +1395,12 @@ public class Kernel
 					    steamElement.m_fileSize,
 					    steamElement.m_readOffset);
 
-	    m_steamsMutex.writeLock().lock();
-
 	    try
 	    {
-		m_steams.append(steamElement.m_oid, steam);
+		m_steams.put(steamElement.m_oid, steam);
 	    }
 	    catch(Exception exception)
 	    {
-	    }
-	    finally
-	    {
-		m_steamsMutex.writeLock().unlock();
 	    }
 	}
 
@@ -1307,18 +1413,14 @@ public class Kernel
 	** Disconnect all existing sockets.
 	*/
 
-	m_neighborsMutex.writeLock().lock();
-
 	try
 	{
-	    int size = m_neighbors.size();
-
-	    for(int i = 0; i < size; i++)
+	    for(Integer key : m_neighbors.keySet())
 	    {
-		int j = m_neighbors.keyAt(i);
+		Neighbor value = m_neighbors.get(key);
 
-		if(m_neighbors.get(j) != null)
-		    m_neighbors.get(j).abort();
+		if(value != null)
+		    value.abort();
 	    }
 
 	    m_neighbors.clear();
@@ -1326,36 +1428,24 @@ public class Kernel
 	catch(Exception exception)
 	{
 	}
-	finally
-	{
-	    m_neighborsMutex.writeLock().unlock();
-	}
     }
 
     private void purgeSteams()
     {
-	m_steamsMutex.writeLock().lock();
-
 	try
 	{
-	    int size = m_steams.size();
-
-	    for(int i = 0; i < size; i++)
+	    for(Integer key : m_steams.keySet())
 	    {
-		int j = m_steams.keyAt(i);
+		SteamReader value = m_steams.get(key);
 
-		if(m_steams.get(j) != null)
-		    m_steams.get(j).delete();
+		if(value != null)
+		    value.delete();
 	    }
 
 	    m_steams.clear();
 	}
 	catch(Exception exception)
 	{
-	}
-	finally
-	{
-	    m_steamsMutex.writeLock().unlock();
 	}
     }
 
@@ -1364,27 +1454,18 @@ public class Kernel
 	if(message == null || message.trim().isEmpty())
 	    return;
 
-	m_neighborsMutex.readLock().lock();
-
 	try
 	{
-	    int size = m_neighbors.size();
-
-	    for(int i = 0; i < size; i++)
+	    for(Integer key : m_neighbors.keySet())
 	    {
-		int j = m_neighbors.keyAt(i);
+		Neighbor value = m_neighbors.get(key);
 
-		if(m_neighbors.get(j) != null)
-		    if(!m_neighbors.get(j).passthrough())
-			m_neighbors.get(j).scheduleSend(message);
+		if(value != null && !value.passthrough())
+		    value.scheduleSend(message);
 	    }
 	}
 	catch(Exception exception)
 	{
-	}
-	finally
-	{
-	    m_neighborsMutex.readLock().unlock();
 	}
     }
 
@@ -1407,8 +1488,6 @@ public class Kernel
 	    return neighbors;
 	}
 
-	m_neighborsMutex.writeLock().lock();
-
 	try
 	{
 	    /*
@@ -1416,16 +1495,16 @@ public class Kernel
 	    ** Also removed will be neighbors having disconnected statuses.
 	    */
 
-	    for(int i = m_neighbors.size() - 1; i >= 0; i--)
+	    for(Integer key : m_neighbors.keySet())
 	    {
+		Neighbor value = m_neighbors.get(key);
 		boolean found = false;
-		int oid = m_neighbors.keyAt(i);
 
 		for(NeighborElement neighbor : neighbors)
-		    if(neighbor != null && neighbor.m_oid == oid)
+		    if(neighbor != null && key == neighbor.m_oid)
 		    {
-			if(!neighbor.m_statusControl.toLowerCase().
-			   equals("disconnect"))
+			if(!neighbor.m_statusControl.
+			   equalsIgnoreCase("disconnect"))
 			    found = true;
 
 			break;
@@ -1433,19 +1512,15 @@ public class Kernel
 
 		if(!found)
 		{
-		    if(m_neighbors.get(oid) != null)
-			m_neighbors.get(oid).abort();
+		    if(value != null)
+			value.abort();
 
-		    m_neighbors.remove(oid);
+		    m_neighbors.remove(key);
 		}
 	    }
 	}
 	catch(Exception exception)
 	{
-	}
-	finally
-	{
-	    m_neighborsMutex.writeLock().unlock();
 	}
 
 	return neighbors;
@@ -1462,8 +1537,6 @@ public class Kernel
 	    return steams;
 	}
 
-	m_steamsMutex.writeLock().lock();
-
 	try
 	{
 	    /*
@@ -1472,13 +1545,13 @@ public class Kernel
 	    ** statuses.
 	    */
 
-	    for(int i = m_steams.size() - 1; i >= 0; i--)
+	    for(Integer key : m_steams.keySet())
 	    {
+		SteamReader value = m_steams.get(key);
 		boolean found = false;
-		int oid = m_steams.keyAt(i);
 
 		for(SteamElement steamElement : steams)
-		    if(steamElement != null && steamElement.m_oid == oid)
+		    if(steamElement != null && key == steamElement.m_oid)
 		    {
 			String status = steamElement.m_status.toLowerCase();
 
@@ -1491,19 +1564,15 @@ public class Kernel
 
 		if(!found)
 		{
-		    if(m_steams.get(oid) != null)
-			m_steams.get(oid).delete();
+		    if(value != null)
+			value.delete();
 
-		    m_steams.remove(oid);
+		    m_steams.remove(key);
 		}
 	    }
 	}
 	catch(Exception exception)
 	{
-	}
-	finally
-	{
-	    m_steamsMutex.writeLock().unlock();
 	}
 
 	return steams;
@@ -1520,26 +1589,22 @@ public class Kernel
 	ArrayList<IPAddressElement> addresses1 = new ArrayList<> ();
 	ArrayList<IPAddressElement> addresses2 = new ArrayList<> ();
 
-	m_neighborsMutex.readLock().lock();
-
 	try
 	{
-	    int size = m_neighbors.size();
-
-	    for(int i = 0; i < size; i++)
+	    for(Integer key : m_neighbors.keySet())
 	    {
-		int j = m_neighbors.keyAt(i);
+		Neighbor value = m_neighbors.get(key);
 
-		if(m_neighbors.get(j) != null)
-		    if(m_neighbors.get(j).connected())
+		if(value != null)
+		    if(value.connected())
 		    {
 			IPAddressElement ipAddressElement = new IPAddressElement
-			    (m_neighbors.get(j).remoteIpAddress(),
-			     m_neighbors.get(j).remotePort(),
-			     m_neighbors.get(j).remoteScopeId(),
-			     m_neighbors.get(j).transport());
+			    (value.remoteIpAddress(),
+			     value.remotePort(),
+			     value.remoteScopeId(),
+			     value.transport());
 
-			if(!m_neighbors.get(j).passthrough())
+			if(!value.passthrough())
 			    addresses1.add(ipAddressElement);
 			else
 			    addresses2.add(ipAddressElement);
@@ -1548,10 +1613,6 @@ public class Kernel
 	}
 	catch(Exception exception)
 	{
-	}
-	finally
-	{
-	    m_neighborsMutex.readLock().unlock();
 	}
 
 	Collections.sort(addresses1, Miscellaneous.s_ipAddressComparator);
@@ -1704,28 +1765,19 @@ public class Kernel
 	if(!isNetworkConnected())
 	    return false;
 
-	m_neighborsMutex.readLock().lock();
-
 	try
 	{
-	    int size = m_neighbors.size();
-
-	    for(int i = 0; i < size; i++)
+	    for(Integer key : m_neighbors.keySet())
 	    {
-		int j = m_neighbors.keyAt(i);
+		Neighbor value = m_neighbors.get(key);
 
-		if(m_neighbors.get(j) != null)
-		    if(m_neighbors.get(j).connected() &&
-		       !m_neighbors.get(j).passthrough())
+		if(value != null)
+		    if(value.connected() && !value.passthrough())
 			return true;
 	    }
 	}
 	catch(Exception exception)
 	{
-	}
-	finally
-	{
-	    m_neighborsMutex.readLock().unlock();
 	}
 
 	return false;
@@ -1736,8 +1788,8 @@ public class Kernel
 	try
 	{
 	    ConnectivityManager connectivityManager = (ConnectivityManager)
-		Smoke.getApplication().getApplicationContext().
-		getSystemService(Context.CONNECTIVITY_SERVICE);
+		Smoke.getApplication().getSystemService
+		(Context.CONNECTIVITY_SERVICE);
 	    NetworkInfo networkInfo = connectivityManager.
 		getActiveNetworkInfo();
 
@@ -1755,7 +1807,10 @@ public class Kernel
     public boolean wakeLocked()
     {
 	if(m_wakeLock != null)
-	    return m_wakeLock.isHeld();
+	    synchronized(m_wakeLock)
+	    {
+		return m_wakeLock.isHeld();
+	    }
 
 	return false;
     }
@@ -1763,7 +1818,10 @@ public class Kernel
     public boolean wifiLocked()
     {
 	if(m_wifiLock != null)
-	    return m_wifiLock.isHeld();
+	    synchronized(m_wifiLock)
+	    {
+		return m_wifiLock.isHeld();
+	    }
 
 	return false;
     }
@@ -1794,40 +1852,12 @@ public class Kernel
 
     public int availableNeighbors()
     {
-	m_neighborsMutex.readLock().lock();
-
-	try
-	{
-	    return m_neighbors.size();
-	}
-	catch(Exception exception)
-	{
-	}
-	finally
-	{
-	    m_neighborsMutex.readLock().unlock();
-	}
-
-	return 0;
+	return m_neighbors.size();
     }
 
     public int availableSteamReaders()
     {
-	m_steamsMutex.readLock().lock();
-
-	try
-	{
-	    return m_steams.size();
-	}
-	catch(Exception exception)
-	{
-	}
-	finally
-	{
-	    m_steamsMutex.readLock().unlock();
-	}
-
-	return 0;
+	return m_steams.size();
     }
 
     public int availableSteamWriters()
@@ -1841,27 +1871,18 @@ public class Kernel
 	** Discover the oldest, incomplete Simple Steam.
 	*/
 
-	m_steamsMutex.readLock().lock();
-
 	try
 	{
-	    int size = m_steams.size();
-
-	    for(int i = 0; i < size; i++)
+	    for(Integer key : m_steams.keySet())
 	    {
-		int j = m_steams.keyAt(i);
+		SteamReader value = m_steams.get(key);
 
-		if(m_steams.get(j) instanceof SteamReaderSimple &&
-		   m_steams.get(j).completed() == false)
-		    return m_steams.get(j).getOid();
+		if(value instanceof SteamReaderSimple && !value.completed())
+		    return value.getOid();
 	    }
 	}
 	catch(Exception exception)
 	{
-	}
-	finally
-	{
-	    m_steamsMutex.readLock().unlock();
 	}
 
 	return -1;
@@ -2821,6 +2842,7 @@ public class Kernel
 	    else if(pki.length == Cryptography.CIPHER_HASH_KEYS_LENGTH)
 	    {
 		/*
+		** Arson Half-And-Half
 		** Organic Half-And-Half
 		** Steam Key Exchange A
 		** Steam Key Exchange B
@@ -2853,7 +2875,9 @@ public class Kernel
 
 		byte tag = ciphertext[0];
 
-		if(!(tag == Messages.CALL_HALF_AND_HALF_TAGS[0] ||
+		if(!(tag == Messages.ARSON_CALL_HALF_AND_HALF_TAGS[0] ||
+		     tag == Messages.ARSON_CALL_HALF_AND_HALF_TAGS[1] ||
+		     tag == Messages.CALL_HALF_AND_HALF_TAGS[0] ||
 		     tag == Messages.CALL_HALF_AND_HALF_TAGS[1] ||
 		     tag == Messages.STEAM_KEY_EXCHANGE[0] ||
 		     tag == Messages.STEAM_KEY_EXCHANGE[1]))
@@ -2974,7 +2998,8 @@ public class Kernel
 			    switch(ephemeralPublicKeyType[0])
 			    {
 			    case (byte) 'M':
-				publicKey = Cryptography.publicKeyFromBytes
+				publicKey = Cryptography.
+				    publicMcElieceKeyFromBytes
 				    (ephemeralPublicKey);
 				break;
 			    case (byte) 'R':
@@ -3187,12 +3212,14 @@ public class Kernel
 
 		if(abyte[0] == Messages.STEAM_SHARE[0])
 		{
-		    if(m_steamWriter.
-		       write(pki,
-			     Arrays.copyOfRange(ciphertext,
-						17,
-						ciphertext.length),
-			     offset))
+		    long rc = m_steamWriter.write
+			(pki,
+			 Arrays.copyOfRange(ciphertext,
+					    17,
+					    ciphertext.length),
+			 offset);
+
+		    if(rc >= 0L)
 		    {
 			String sipHashId = s_databaseHelper.steamSipHashId
 			    (s_cryptography, pki);
@@ -3204,7 +3231,7 @@ public class Kernel
 			     keyStream,
 			     null,
 			     Messages.STEAM_SHARE[1],
-			     offset);
+			     rc);
 
 			if(bytes != null)
 			    sendSteam
@@ -3215,20 +3242,16 @@ public class Kernel
 		}
 		else if(abyte[0] == Messages.STEAM_SHARE[1])
 		{
-		    m_steamsMutex.readLock().lock();
-
 		    try
 		    {
-			int size = m_steams.size();
-
-			for(int i = 0; i < size; i++)
+			for(Integer key : m_steams.keySet())
 			{
-			    int j = m_steams.keyAt(i);
+			    SteamReader v = m_steams.get(key);
 
-			    if(m_steams.get(j) instanceof SteamReaderFull)
+			    if(v instanceof SteamReaderFull)
 			    {
 				SteamReaderFull steamReaderFull =
-				    (SteamReaderFull) m_steams.get(j);
+				    (SteamReaderFull) v;
 
 				if(Arrays.
 				   equals(pki, steamReaderFull.fileIdentity()))
@@ -3242,10 +3265,6 @@ public class Kernel
 		    }
 		    catch(Exception exception)
 		    {
-		    }
-		    finally
-		    {
-			m_steamsMutex.readLock().unlock();
 		    }
 		}
 	    }
@@ -3313,6 +3332,33 @@ public class Kernel
 	}
     }
 
+    public void call(ParticipantCall participantCall)
+    {
+	if(participantCall == null)
+	    return;
+
+	if(participantCall.m_arson)
+	{
+	    /*
+	    ** Calling messages are not placed in the outbound_queue
+	    ** as they are considered temporary.
+	    */
+
+	    try
+	    {
+		m_arsonCallQueue.add(participantCall);
+	    }
+	    catch(Exception exception)
+	    {
+	    }
+
+	    synchronized(m_arsonCallSchedulerMutex)
+	    {
+		m_arsonCallSchedulerMutex.notify();
+	    }
+	}
+    }
+
     public void clearMessagesToSend()
     {
 	m_messagesToSendMutex.writeLock().lock();
@@ -3332,29 +3378,21 @@ public class Kernel
 
     public void clearNeighborQueues()
     {
-	m_neighborsMutex.readLock().lock();
-
 	try
 	{
-	    int size = m_neighbors.size();
-
-	    for(int i = 0; i < size; i++)
+	    for(Integer key : m_neighbors.keySet())
 	    {
-		int j = m_neighbors.keyAt(i);
+		Neighbor value = m_neighbors.get(key);
 
-		if(m_neighbors.get(j) != null)
+		if(value != null)
 		{
-		    m_neighbors.get(j).clearEchoQueue();
-		    m_neighbors.get(j).clearQueue();
+		    value.clearEchoQueue();
+		    value.clearQueue();
 		}
 	    }
 	}
 	catch(Exception exception)
 	{
-	}
-	finally
-	{
-	    m_neighborsMutex.readLock().unlock();
 	}
     }
 
@@ -3365,28 +3403,20 @@ public class Kernel
 	   message.trim().isEmpty())
 	    return;
 
-	m_neighborsMutex.readLock().lock();
-
 	try
 	{
-	    int size = m_neighbors.size();
-
-	    for(int i = 0; i < size; i++)
+	    for(Integer key : m_neighbors.keySet())
 	    {
-		int j = m_neighbors.keyAt(i);
+		Neighbor value = m_neighbors.get(key);
 
-		if(m_neighbors.get(j) != null &&
-		   m_neighbors.get(j).getOid() != oid &&
-		   !m_neighbors.get(j).passthrough())
-		    m_neighbors.get(j).scheduleEchoSend(message);
+		if(value != null &&
+		   value.getOid() != oid &&
+		   !value.passthrough())
+		    value.scheduleEchoSend(message);
 	    }
 	}
 	catch(Exception exception)
 	{
-	}
-	finally
-	{
-	    m_neighborsMutex.readLock().unlock();
 	}
     }
 
@@ -3395,28 +3425,20 @@ public class Kernel
 	if(message == null || message.trim().isEmpty())
 	    return;
 
-	m_neighborsMutex.readLock().lock();
-
 	try
 	{
-	    int size = m_neighbors.size();
-
-	    for(int i = 0; i < size; i++)
+	    for(Integer key : m_neighbors.keySet())
 	    {
-		int j = m_neighbors.keyAt(i);
+		Neighbor value = m_neighbors.get(key);
 
-		if(m_neighbors.get(j) != null &&
-		   m_neighbors.get(j).getOid() != oid &&
-		   !m_neighbors.get(j).passthrough())
-		    m_neighbors.get(j).scheduleEchoSend(message);
+		if(value != null &&
+		   value.getOid() != oid &&
+		   !value.passthrough())
+		    value.scheduleEchoSend(message);
 	    }
 	}
 	catch(Exception exception)
 	{
-	}
-	finally
-	{
-	    m_neighborsMutex.readLock().unlock();
 	}
     }
 
@@ -3780,17 +3802,13 @@ public class Kernel
 	if(bytes == null || bytes.length == 0)
 	    return sent;
 
-	m_neighborsMutex.readLock().lock();
-
 	try
 	{
-	    int size = m_neighbors.size();
-
-	    for(int i = 0; i < size; i++)
+	    for(Integer key : m_neighbors.keySet())
 	    {
-		int j = m_neighbors.keyAt(i);
+		Neighbor value = m_neighbors.get(key);
 
-		if(m_neighbors.get(j) != null && m_neighbors.get(j).connected())
+		if(value != null && value.connected())
 		{
 		    /*
 		    ** Increase the offset by the minimum number of bytes.
@@ -3798,18 +3816,18 @@ public class Kernel
 
 		    if(simple)
 		    {
-			if(m_neighbors.get(j).passthrough())
+			if(value.passthrough())
 			{
-			    int rc = m_neighbors.get(j).send(bytes);
+			    int rc = value.send(bytes);
 
 			    sent = Math.max(0, Math.min(Integer.MAX_VALUE, rc));
 			}
 		    }
 		    else
 		    {
-			if(!m_neighbors.get(j).passthrough())
+			if(!value.passthrough())
 			{
-			    int rc = m_neighbors.get(j).send(bytes);
+			    int rc = value.send(bytes);
 
 			    sent = Math.max(0, Math.min(Integer.MAX_VALUE, rc));
 			}
@@ -3819,10 +3837,6 @@ public class Kernel
 	}
 	catch(Exception exception)
 	{
-	}
-	finally
-	{
-	    m_neighborsMutex.readLock().unlock();
 	}
 
 	return sent;
@@ -3830,42 +3844,24 @@ public class Kernel
 
     public void setWakeLock(boolean state)
     {
-	if(m_wakeLock == null)
-	    try
+	if(m_wakeLock != null)
+	    synchronized(m_wakeLock)
 	    {
-		PowerManager powerManager = (PowerManager)
-		    Smoke.getApplication().getApplicationContext().
-		    getSystemService(Context.POWER_SERVICE);
-
-		if(powerManager != null)
-		    m_wakeLock = powerManager.newWakeLock
-			(PowerManager.PARTIAL_WAKE_LOCK,
-			 "Smoke:SmokeWakeLockTag");
-
-		if(m_wakeLock != null)
-		    m_wakeLock.setReferenceCounted(false);
-	    }
-	    catch(Exception exception)
-	    {
-	    }
-
-	try
-	{
-	    if(m_wakeLock != null)
-	    {
-		if(state)
+		try
 		{
-		    if(m_wakeLock.isHeld())
-			m_wakeLock.release();
+		    if(state)
+		    {
+			if(m_wakeLock.isHeld())
+			    m_wakeLock.release();
 
-		    m_wakeLock.acquire();
+			m_wakeLock.acquire();
+		    }
+		    else if(m_wakeLock.isHeld())
+			m_wakeLock.release();
 		}
-		else if(m_wakeLock.isHeld())
-		    m_wakeLock.release();
+		catch(Exception exception)
+		{
+		}
 	    }
-	}
-	catch(Exception exception)
-	{
-	}
     }
 }

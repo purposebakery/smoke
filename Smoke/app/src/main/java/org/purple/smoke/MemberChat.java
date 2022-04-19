@@ -122,15 +122,20 @@ public class MemberChat extends AppCompatActivity
 		    {
 			try
 			{
-			    Ringtone ringtone = null;
+			    if(m_ringtone != null)
+				m_ringtone.stop();
+
 			    Uri notification = RingtoneManager.getDefaultUri
 				(RingtoneManager.TYPE_NOTIFICATION);
 
-			    ringtone = RingtoneManager.getRingtone
+			    m_ringtone = RingtoneManager.getRingtone
 				(getApplicationContext(), notification);
-			    ringtone.play();
+			    m_ringtone.play();
 			}
 			catch(Exception exception)
+			{
+			}
+			finally
 			{
 			}
 		    }
@@ -157,6 +162,10 @@ public class MemberChat extends AppCompatActivity
 		Miscellaneous.showNotification
 		    (MemberChat.this, intent, findViewById(R.id.main_layout));
 		break;
+	    case "org.purple.smoke.steam_added":
+		Miscellaneous.showNotification
+		    (MemberChat.this, intent, findViewById(R.id.main_layout));
+		break;
 	    default:
 		break;
 	    }
@@ -165,12 +174,10 @@ public class MemberChat extends AppCompatActivity
 
     private class RemoveSelectedMessages implements Runnable
     {
-	private Dialog m_dialog = null;
 	private String m_sipHashId = null;
 
 	private RemoveSelectedMessages(Dialog dialog, String sipHashId)
 	{
-	    m_dialog = dialog;
 	    m_sipHashId = sipHashId;
 	}
 
@@ -216,10 +223,12 @@ public class MemberChat extends AppCompatActivity
 	}
     }
 
+    private ArsonEphemeralKeyGenerator m_arson = null;
     private ConcurrentHashMap<Integer, Boolean> m_selectedMessages = null;
     private MemberChatAdapter m_adapter = null;
     private MemberChatBroadcastReceiver m_receiver = null;
     private RecyclerView m_recyclerView = null;
+    private Ringtone m_ringtone = null;
     private ScheduledExecutorService m_statusScheduler = null;
     private SmokeLinearLayoutManager m_layoutManager = null;
     private String m_name = Cryptography.DEFAULT_SIPHASH_ID;
@@ -633,9 +642,7 @@ public class MemberChat extends AppCompatActivity
 	    }
 	}
 
-	Thread thread = new Thread(new SingleShot(oid));
-
-	thread.start();
+	new Thread(new SingleShot(oid)).start();
     }
 
     private void showFireActivity()
@@ -852,9 +859,7 @@ public class MemberChat extends AppCompatActivity
 		    }
 		}
 
-		Thread thread = new Thread(new SingleShot(data.getData()));
-
-		thread.start();
+		new Thread(new SingleShot(data.getData())).start();
             }
 	}
 	catch(Exception exception)
@@ -869,6 +874,8 @@ public class MemberChat extends AppCompatActivity
 	super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_member_chat);
 	setSupportActionBar((Toolbar) findViewById(R.id.toolbar));
+	m_arson = new ArsonEphemeralKeyGenerator
+	    (State.getInstance().getString("member_chat_siphash_id"));
 	m_layoutManager = new SmokeLinearLayoutManager(MemberChat.this);
 	m_layoutManager.setOrientation(LinearLayoutManager.VERTICAL);
 	m_layoutManager.setReverseLayout(true);
@@ -1012,6 +1019,7 @@ public class MemberChat extends AppCompatActivity
 	    intentFilter.addAction("org.purple.smoke.network_disconnected");
 	    intentFilter.addAction
 		("org.purple.smoke.state_participants_populated");
+	    intentFilter.addAction("org.purple.smoke.steam_added");
 	    intentFilter.addAction("org.purple.smoke.time");
 	    LocalBroadcastManager.getInstance(getApplicationContext()).
 		registerReceiver(m_receiver, intentFilter);
@@ -1618,9 +1626,7 @@ public class MemberChat extends AppCompatActivity
 			    }
 			}
 
-			Thread thread = new Thread(new SingleShot());
-
-			thread.start();
+			new Thread(new SingleShot()).start();
 		    }
 		}
 	    }
@@ -1665,7 +1671,7 @@ public class MemberChat extends AppCompatActivity
 		showChatActivity();
 		return true;
 	    case R.id.action_exit:
-		Smoke.exit(MemberChat.this);
+		Smoke.exit(true, MemberChat.this);
 		return true;
 	    case R.id.action_fire:
 		s_databaseHelper.writeSetting(null, "lastActivity", "Fire");

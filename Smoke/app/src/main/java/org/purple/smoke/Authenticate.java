@@ -34,6 +34,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
+import android.os.Looper;
 import android.util.Base64;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -48,6 +49,7 @@ import javax.crypto.SecretKey;
 public class Authenticate extends AppCompatActivity
 {
     private Database m_databaseHelper = null;
+    private Handler m_handler = null;
     private TextView m_warningLabel = null;
     private final static Cryptography s_cryptography =
 	Cryptography.getInstance();
@@ -56,9 +58,9 @@ public class Authenticate extends AppCompatActivity
     {
 	if(m_databaseHelper.
 	   readSetting(null, "foreground_service").equals("false"))
-	    SmokeService.stopForegroundTask(getApplicationContext());
+	    SmokeService.stopForegroundTask(Authenticate.this);
 	else
-	    SmokeService.startForegroundTask(getApplicationContext());
+	    SmokeService.startForegroundTask(Authenticate.this);
     }
 
     private void prepareListeners()
@@ -166,9 +168,12 @@ public class Authenticate extends AppCompatActivity
 		    textView1.setText("");
 		    textView1.requestFocus();
 
-		    Handler handler = new Handler();
+		    if(m_handler == null)
+			m_handler = new Handler(Looper.getMainLooper());
+		    else
+			m_handler.removeCallbacksAndMessages(null);
 
-		    handler.postDelayed(new Runnable()
+		    m_handler.postDelayed(new Runnable()
 		    {
 			@Override
 			public void run()
@@ -476,14 +481,12 @@ public class Authenticate extends AppCompatActivity
 		    }
 		}
 
-		Thread thread = new Thread
+		new Thread
 		    (new SingleShot(textView1.getText().toString(),
 				    encryptionSalt,
 				    macSalt,
 				    iterationCount,
-				    keyDerivationFunction));
-
-		thread.start();
+				    keyDerivationFunction)).start();
 	    }
 	});
 
@@ -635,7 +638,7 @@ public class Authenticate extends AppCompatActivity
 		showChatActivity();
 		return true;
 	    case R.id.action_exit:
-		Smoke.exit(Authenticate.this);
+		Smoke.exit(false, Authenticate.this);
 		return true;
 	    case R.id.action_fire:
 		m_databaseHelper.writeSetting(null, "lastActivity", "Fire");

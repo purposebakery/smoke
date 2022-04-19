@@ -39,6 +39,8 @@ import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
+import android.os.Looper;
+import android.support.v4.content.LocalBroadcastManager;
 import android.text.InputType;
 import android.util.Base64;
 import android.util.LayoutDirection;
@@ -75,6 +77,7 @@ import java.util.zip.GZIPOutputStream;
 
 public abstract class Miscellaneous
 {
+    private static Ringtone s_ringtone = null;
     public static final String RATE = "0.00 B / s";
     public static final int INTEGER_BYTES = 4;
     public static final int LONG_BYTES = 8;
@@ -851,6 +854,7 @@ public abstract class Miscellaneous
 
 	    break;
 	case "org.purple.smoke.time":
+	{
 	    String string = intent.getStringExtra("org.purple.smoke.extra1");
 
 	    if(string == null)
@@ -859,6 +863,19 @@ public abstract class Miscellaneous
 		message = string;
 
 	    break;
+	}
+	case "org.purple.smoke.steam_added":
+	{
+	    String string1 = intent.getStringExtra("org.purple.smoke.extra1");
+	    String string2 = intent.getStringExtra("org.purple.smoke.extra2");
+
+	    message = "A new Steam (" +
+		string2 +
+		") has arrived from " +
+		string1 +
+		"!";
+	    break;
+	}
 	default:
 	    break;
 	}
@@ -895,18 +912,20 @@ public abstract class Miscellaneous
 
 	try
 	{
-	    Ringtone ringtone = null;
+	    if(s_ringtone != null)
+		s_ringtone.stop();
+
 	    Uri notification = RingtoneManager.getDefaultUri
 		(RingtoneManager.TYPE_NOTIFICATION);
 
-	    ringtone = RingtoneManager.getRingtone(context, notification);
-	    ringtone.play();
+	    s_ringtone = RingtoneManager.getRingtone(context, notification);
+	    s_ringtone.play();
 	}
 	catch(Exception exception)
 	{
 	}
 
-	Handler handler = new Handler();
+	Handler handler = new Handler(Looper.getMainLooper());
 
 	handler.postDelayed(new Runnable()
 	{

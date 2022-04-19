@@ -422,9 +422,7 @@ public class Fire extends AppCompatActivity
 			}
 		    }
 
-		    Thread thread = new Thread(new SingleShot());
-
-		    thread.start();
+		    new Thread(new SingleShot()).start();
 		}
 	    }
 	});
@@ -681,8 +679,8 @@ public class Fire extends AppCompatActivity
 
 	if(m_receiverRegistered)
 	{
-	    LocalBroadcastManager.getInstance(getApplicationContext()).
-		unregisterReceiver(m_receiver);
+	    LocalBroadcastManager.getInstance(Fire.this).unregisterReceiver
+		(m_receiver);
 	    m_receiverRegistered = false;
 	}
     }
@@ -706,7 +704,7 @@ public class Fire extends AppCompatActivity
 	    intentFilter.addAction
 		("org.purple.smoke.state_participants_populated");
 	    intentFilter.addAction("org.purple.smoke.time");
-	    LocalBroadcastManager.getInstance(getApplicationContext()).
+	    LocalBroadcastManager.getInstance(Fire.this).
 		registerReceiver(m_receiver, intentFilter);
 	    m_receiverRegistered = true;
 	}
@@ -734,7 +732,7 @@ public class Fire extends AppCompatActivity
 		showChatActivity();
 		return true;
 	    case R.id.action_exit:
-		Smoke.exit(Fire.this);
+		Smoke.exit(true, Fire.this);
 		return true;
 	    case R.id.action_settings:
 		m_databaseHelper.writeSetting(null, "lastActivity", "Settings");

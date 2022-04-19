@@ -108,7 +108,7 @@ public class UdpNeighbor extends Neighbor
 
 	    while(byteArrayInputStream.available() > 0)
 	    {
-		if(m_aborted.get())
+		if(m_disconnected.get())
 		    break;
 
 		byte b[] = new byte
@@ -119,7 +119,7 @@ public class UdpNeighbor extends Neighbor
 		    (new DatagramPacket(b,
 					b.length,
 					InetAddress.getByName(m_ipAddress),
-					Integer.parseInt(m_ipPort)));
+					m_ipPort.get()));
 		sent += b.length;
 	    }
 
@@ -177,11 +177,12 @@ public class UdpNeighbor extends Neighbor
 	{
 	    m_bytesRead.set(0L);
 	    m_bytesWritten.set(0L);
+	    m_disconnected.set(false);
 	    m_lastParsed.set(System.currentTimeMillis());
 	    m_lastTimeRead.set(System.nanoTime());
 	    m_socket = new DatagramSocket();
-	    m_socket.connect(InetAddress.getByName(m_ipAddress),
-			     Integer.parseInt(m_ipPort));
+	    m_socket.connect
+		(InetAddress.getByName(m_ipAddress), m_ipPort.get());
 	    m_socket.setSoTimeout(SO_TIMEOUT);
 	    m_startTime.set(System.nanoTime());
 	    setError("");
@@ -239,7 +240,7 @@ public class UdpNeighbor extends Neighbor
 
 		try
 		{
-		    if(!connected() && !m_aborted.get())
+		    if(!connected() && !m_disconnected.get())
 			synchronized(m_mutex)
 			{
 			    try
@@ -251,7 +252,7 @@ public class UdpNeighbor extends Neighbor
 			    }
 			}
 
-		    if(!connected() || m_aborted.get())
+		    if(!connected() || m_disconnected.get())
 			return;
 		    else if(m_error)
 		    {
@@ -306,8 +307,7 @@ public class UdpNeighbor extends Neighbor
 
 		    if(byteArrayOutputStream != null &&
 		       m_stringBuffer.length() < MAXIMUM_BYTES)
-			m_stringBuffer.append
-			    (new String(byteArrayOutputStream.toByteArray()));
+			m_stringBuffer.append(byteArrayOutputStream.toString());
 
 		    synchronized(m_parsingSchedulerMutex)
 		    {

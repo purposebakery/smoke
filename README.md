@@ -1,3 +1,6 @@
+Smoke
+-----
+
 Summary of Smoke
 
 <ul>
@@ -17,6 +20,7 @@ Summary of Smoke
 <li>Future-proof software.</li>
 <li>Introduces Cryptographic Discovery. Cryptographic Discovery is a practical protocol which creates coordinated data paths.</li>
 <li>Juggling Juggernaut Protocol!</li>
+<li>Manufactured tool tips!</li>
 <li>McEliece Fujisaka and Pointcheval.</li>
 <li>Message structures do not explicitly expose contents. Header-less protocols! Some messages do include type information.</li>
 <li>Mobile servers via <a href="https://github.com/textbrowser/smokestack">SmokeStack</a>.</li>
@@ -28,8 +32,10 @@ Summary of Smoke
 <li>Post offices for messages of the past.</li>
 <li>Private servers.</li>
 <li>Public and private public-key servers.</li>
+<li>Rainbow digital signature scheme.</li>
 <li>Reliable distribution of archived messages.</li>
 <li>Reliable distribution of deliverable text messages.</li>
+<li>SPHINCS digital signature scheme.</li>
 <li>SSL/TLS through SmokeStack.</li>
 <li>Semi-compatible with <a href="https://github.com/textbrowser/spot-on">Spot-On</a> via Fire.</li>
 <li>Share files with TCP utilities such as Netcat.</li>
@@ -39,6 +45,8 @@ Summary of Smoke
 <li>Steamrolling, or, real-time broadcasting of inbound Steams to fellow participants.</li>
 <li>Super McEliece: m = 13, t = 118.</li>
 </ul>
+
+Please read https://github.com/textbrowser/smoke/tree/master/Documentation for more information.
 
 Starting a Conversation
 
@@ -54,3 +62,6 @@ Starting a Conversation
 </ol>
 
 ![alt text](https://github.com/textbrowser/smoke/blob/master/Images/smoke_7.png)
+[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
+     alt="Get it on F-Droid!"
+     height="80">](https://f-droid.org/packages/org.purple.smoke/)

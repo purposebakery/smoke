@@ -29,6 +29,7 @@ package org.purple.smoke;
 
 import android.content.ContentValues;
 import android.content.Context;
+import android.content.Intent;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteConstraintException;
 import android.database.sqlite.SQLiteDatabase;
@@ -52,6 +53,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.regex.Matcher;
+import org.bouncycastle.pqc.jcajce.provider.BouncyCastlePQCProvider;
 
 public class Database extends SQLiteOpenHelper
 {
@@ -156,14 +158,14 @@ public class Database extends SQLiteOpenHelper
     private final static ReentrantReadWriteLock s_congestionControlMutex =
 	new ReentrantReadWriteLock();
     private final static String DATABASE_NAME = "smoke.db";
-    private final static int DATABASE_VERSION = 1;
+    private final static int DATABASE_VERSION = 20211005;
     private final static long WRITE_PARTICIPANT_TIME_DELTA =
 	60000L; // 60 seconds.
     private static Database s_instance = null;
     public enum ExceptionLevels
     {
 	EXCEPTION_FATAL, EXCEPTION_NONE, EXCEPTION_PERMISSIBLE
-    }
+    };
     public final static int SIPHASH_STREAM_CREATION_ITERATION_COUNT = 4096;
     public final static int MESSAGE_DELIVERY_ATTEMPTS = 10; // Must be > 0!
 
@@ -286,7 +288,14 @@ public class Database extends SQLiteOpenHelper
 
 	    m_db.insertOrThrow("steam_files", null, values);
 	    m_db.setTransactionSuccessful();
-	    Miscellaneous.sendBroadcast("org.purple.smoke.steam_added");
+
+	    Intent intent = new Intent("org.purple.smoke.steam_added");
+
+	    intent.putExtra
+		("org.purple.smoke.extra1", steamElement.m_destination);
+	    intent.putExtra
+		("org.purple.smoke.extra2", steamElement.m_displayFileName);
+	    Miscellaneous.sendBroadcast(intent);
 	}
 	catch(Exception exception)
 	{
@@ -1588,7 +1597,9 @@ public class Database extends SQLiteOpenHelper
 					hmac(sipHashId.toUpperCase().trim().
 					     getBytes(StandardCharsets.UTF_8)),
 					Base64.DEFAULT)});
-		    m_readMemberChatSipHashId = sipHashId;
+
+		    if(m_readMemberChatCursor != null)
+			m_readMemberChatSipHashId = sipHashId;
 		}
 
 		if(m_readMemberChatCursor != null &&
@@ -1798,23 +1809,26 @@ public class Database extends SQLiteOpenHelper
 				   Base64.DEFAULT));
 
 		if(bytes != null)
-		    for(int i = 0; i < 2; i++)
-			try
-			{
-			    if(i == 0)
-				publicKey = KeyFactory.getInstance("EC").
-				    generatePublic
-				    (new X509EncodedKeySpec(bytes));
-			    else
-				publicKey = KeyFactory.getInstance("RSA").
-				    generatePublic
-				    (new X509EncodedKeySpec(bytes));
+		{
+		    int length = bytes.length;
 
-			    break;
-			}
-			catch(Exception exception)
-			{
-			}
+		    if(length < Cryptography.PKIKeySizeBounds.PUBLIC_EC)
+			publicKey = KeyFactory.getInstance("EC").
+			    generatePublic(new X509EncodedKeySpec(bytes));
+		    else if(length < Cryptography.PKIKeySizeBounds.PUBLIC_RSA)
+			publicKey = KeyFactory.getInstance("RSA").
+			    generatePublic(new X509EncodedKeySpec(bytes));
+		    else if(length <
+			    Cryptography.PKIKeySizeBounds.PUBLIC_SPHINCS)
+			publicKey = KeyFactory.getInstance
+			    ("SPHINCS256",
+			     BouncyCastlePQCProvider.PROVIDER_NAME).
+			    generatePublic(new X509EncodedKeySpec(bytes));
+		    else
+			publicKey = KeyFactory.getInstance
+			    ("Rainbow", BouncyCastlePQCProvider.PROVIDER_NAME).
+			    generatePublic(new X509EncodedKeySpec(bytes));
+		}
 	    }
 	}
 	catch(Exception exception)
@@ -3322,6 +3336,34 @@ public class Database extends SQLiteOpenHelper
 	    sipHashIdElement.m_signaturePublicKey.length > 0;
     }
 
+    public boolean isSteamLocked(int oid)
+    {
+	if(m_db == null)
+	    return true;
+
+	Cursor cursor = null;
+
+	try
+	{
+	    cursor = m_db.rawQuery
+		("SELECT is_locked FROM steam_files WHERE oid = ?",
+		 new String[] {String.valueOf(oid)});
+
+	    if(cursor != null && cursor.moveToFirst())
+		return cursor.getInt(0) == 1;
+	}
+	catch(Exception exception)
+	{
+	}
+	finally
+	{
+	    if(cursor != null)
+		cursor.close();
+	}
+
+	return true;
+    }
+
     public boolean setParticipantKeyStream(Cryptography cryptography,
 					   byte keyStream[],
 					   int oid)
@@ -3733,7 +3775,7 @@ public class Database extends SQLiteOpenHelper
 	    ** Proxy information.
 	    */
 
-	    if(!transport.toLowerCase().equals("tcp"))
+	    if(!transport.equalsIgnoreCase("tcp"))
 	    {
 		proxyIpAddress = "";
 		proxyPort = "";
@@ -3757,7 +3799,7 @@ public class Database extends SQLiteOpenHelper
 
 		if(!matcher.matches())
 		{
-		    if(version.toLowerCase().equals("ipv4"))
+		    if(version.equalsIgnoreCase("ipv4"))
 			remoteIpAddress = "0.0.0.0";
 		    else
 			remoteIpAddress = "0:0:0:0:0:ffff:0:0";
@@ -4555,7 +4597,7 @@ public class Database extends SQLiteOpenHelper
     public static synchronized Database getInstance(Context context)
     {
 	if(s_instance == null)
-	    s_instance = new Database(context.getApplicationContext());
+	    s_instance = new Database(context);
 
 	return s_instance;
     }
@@ -4590,11 +4632,13 @@ public class Database extends SQLiteOpenHelper
 	if(m_db == null)
 	    return;
 
+	Cursor cursor = null;
+
 	m_db.beginTransactionNonExclusive();
 
 	try
 	{
-	    m_db.rawQuery
+	    cursor = m_db.rawQuery
 		("DELETE FROM participants WHERE siphash_id_digest " +
 		 "NOT IN (SELECT siphash_id_digest FROM siphash_ids)",
 		 null);
@@ -4605,6 +4649,9 @@ public class Database extends SQLiteOpenHelper
 	}
 	finally
 	{
+	    if(cursor != null)
+		cursor.close();
+
 	    m_db.endTransaction();
 	}
     }
@@ -5006,6 +5053,27 @@ public class Database extends SQLiteOpenHelper
 	}
 
 	/*
+	** Create the arson table.
+	*/
+
+	str = "CREATE TABLE IF NOT EXISTS arson_keys (" +
+	    "enabled TEXT NOT NULL, " +
+	    "message_keystream TEXT NOT NULL, " +
+	    "message_keystream_digest TEXT NOT NULL, " +
+	    "siphash_id_digest TEXT NOT NULL, " +
+	    "FOREIGN KEY (siphash_id_digest) REFERENCES " +
+	    "siphash_ids (siphash_id_digest) ON DELETE CASCADE, " +
+	    "PRIMARY KEY (message_keystream_digest, siphash_id_digest))";
+
+	try
+	{
+	    db.execSQL(str);
+	}
+	catch(Exception exception)
+	{
+	}
+
+	/*
 	** Create the congestion_control table.
 	*/
 
@@ -5211,6 +5279,18 @@ public class Database extends SQLiteOpenHelper
 	{
 	}
 
+	str = "CREATE INDEX IF NOT EXISTS " +
+	    "participants_messages_timestamp_index " +
+	    "ON participants_messages(timestamp)";
+
+	try
+	{
+	    db.execSQL(str);
+	}
+	catch(Exception exception)
+	{
+	}
+
 	/*
 	** Create the settings table.
 	*/
@@ -5243,6 +5323,7 @@ public class Database extends SQLiteOpenHelper
 	    "file_identity_digest TEXT NOT NULL, " +
 	    "file_size TEXT NOT NULL, " +
 	    "is_download TEXT NOT NULL, " +
+	    "is_locked INTEGER NOT NULL DEFAULT 1, " +
 	    "key_type TEXT NOT NULL, " +
 	    "keystream TEXT NOT NULL, " + /*
 					  ** Authentication and encryption
@@ -5272,7 +5353,35 @@ public class Database extends SQLiteOpenHelper
     @Override
     public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion)
     {
+	if(db == null)
+	    return;
+
         onCreate(db);
+
+	String str = "";
+
+	str = "ALTER TABLE steam_files ADD is_locked " +
+	    "INTEGER NOT NULL DEFAULT 1";
+
+	try
+	{
+	    db.execSQL(str);
+	}
+	catch(Exception exception)
+	{
+	}
+
+	str = "CREATE INDEX IF NOT EXISTS " +
+	    "participants_messages_timestamp_index " +
+	    "ON participants_messages(timestamp)";
+
+	try
+	{
+	    db.execSQL(str);
+	}
+	catch(Exception exception)
+	{
+	}
     }
 
     public void pauseAllSteams()
@@ -5456,7 +5565,8 @@ public class Database extends SQLiteOpenHelper
 	    return;
 
 	String strings[] = new String[]
-	    {"DROP TABLE IF EXISTS congestion_control",
+	    {"DROP TABLE IF EXISTS arson_keys",
+	     "DROP TABLE IF EXISTS congestion_control",
 	     "DROP TABLE IF EXISTS fire",
 	     "DROP TABLE IF EXISTS log",
 	     "DROP TABLE IF EXISTS neighbors",

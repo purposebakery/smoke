@@ -34,6 +34,7 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Bundle;
 
@@ -484,11 +485,9 @@ public class Settings extends AppCompatActivity
 	    }
 	}
 
-	Thread thread = new Thread
+	new Thread
 	    (new SingleShot(((TextView) findViewById(R.id.participant_name)).
-			    getText().toString(), string));
-
-	thread.start();
+			    getText().toString(), string)).start();
     }
 
     private void deleteNeighbor(String ipAndPort, int id)
@@ -515,7 +514,21 @@ public class Settings extends AppCompatActivity
 			    ** field may represent a recycled value.
 			    */
 
-			    Kernel.getInstance().purgeDeletedNeighbors();
+			    class SingleShot implements Runnable
+			    {
+				SingleShot()
+				{
+				}
+
+				@Override
+				public void run()
+				{
+				    Kernel.getInstance().
+					purgeDeletedNeighbors();
+				}
+			    }
+
+			    new Thread(new SingleShot()).start();
 
 			    TableLayout tableLayout = (TableLayout)
 				findViewById(R.id.neighbors);
@@ -718,9 +731,7 @@ public class Settings extends AppCompatActivity
 	    }
 	}
 
-	Thread thread = new Thread(new SingleShot());
-
-	thread.start();
+	new Thread(new SingleShot()).start();
     }
 
     private void networkStatusChanged()
@@ -1164,6 +1175,7 @@ public class Settings extends AppCompatActivity
 	    textView1.setLayoutParams
 		(new TableRow.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1));
 	    textView1.setText(stringBuilder);
+	    textView1.setTypeface(Typeface.MONOSPACE);
 	    textView1.setWidth(TEXTVIEW_WIDTH);
 
 	    if(row != null)
@@ -1399,18 +1411,28 @@ public class Settings extends AppCompatActivity
 			m_error = "encryption-key " +
 			    "generatePrivatePublicKeyPair() failure";
 			s_cryptography.reset();
-			return;
+			throw new Exception(m_error);
 		    }
 
 		    if(m_signatureAlgorithm.equals("EC"))
 			chatSignatureKeyPair = Cryptography.
 			    generatePrivatePublicKeyPair
 			    ("EC", Cryptography.PKI_SIGNATURE_KEY_SIZES[0], 0);
+		    else if(m_signatureAlgorithm.equals("RSA"))
+			chatSignatureKeyPair = Cryptography.
+			    generatePrivatePublicKeyPair
+			    ("RSA", Cryptography.PKI_SIGNATURE_KEY_SIZES[1], 0);
+		    else if(m_signatureAlgorithm.equals("Rainbow"))
+			chatSignatureKeyPair = Cryptography.
+			    generatePrivatePublicKeyPair
+			    ("Rainbow",
+			     Cryptography.PKI_SIGNATURE_KEY_SIZES[2],
+			     0);
 		    else
 			chatSignatureKeyPair = Cryptography.
 			    generatePrivatePublicKeyPair
 			    (m_signatureAlgorithm,
-			     Cryptography.PKI_SIGNATURE_KEY_SIZES[1],
+			     Cryptography.PKI_SIGNATURE_KEY_SIZES[3],
 			     0);
 
 		    if(chatSignatureKeyPair == null)
@@ -1418,7 +1440,7 @@ public class Settings extends AppCompatActivity
 			m_error = "signature-key " +
 			    "generatePrivatePublicKeyPair() failure";
 			s_cryptography.reset();
-			return;
+			throw new Exception(m_error);
 		    }
 
 		    encryptionKey = Cryptography.
@@ -1432,7 +1454,7 @@ public class Settings extends AppCompatActivity
 		    {
 			m_error = "generateEncryptionKey() failure";
 			s_cryptography.reset();
-			return;
+			throw new Exception(m_error);
 		    }
 
 		    macKey = Cryptography.generateMacKey
@@ -1445,7 +1467,7 @@ public class Settings extends AppCompatActivity
 		    {
 			m_error = "generateMacKey() failure";
 			s_cryptography.reset();
-			return;
+			throw new Exception(m_error);
 		    }
 
 		    /*
@@ -1612,23 +1634,20 @@ public class Settings extends AppCompatActivity
 	    }
 	}
 
-	Thread thread = new Thread
-	    (new SingleShot(spinner3.getSelectedItem().toString(),
-			    textView1.getText().toString(),
-			    spinner4.getSelectedItem().toString(),
-			    iterationCount,
-			    keyDerivationFunction));
-
-	thread.start();
+	new Thread(new SingleShot(spinner3.getSelectedItem().toString(),
+				  textView1.getText().toString(),
+				  spinner4.getSelectedItem().toString(),
+				  iterationCount,
+				  keyDerivationFunction)).start();
     }
 
     private void prepareForegroundService()
     {
 	if(m_databaseHelper.
 	   readSetting(null, "foreground_service").equals("false"))
-	    SmokeService.stopForegroundTask(getApplicationContext());
+	    SmokeService.stopForegroundTask(Settings.this);
 	else
-	    SmokeService.startForegroundTask(getApplicationContext());
+	    SmokeService.startForegroundTask(Settings.this);
     }
 
     private void prepareListeners()
@@ -1684,7 +1703,7 @@ public class Settings extends AppCompatActivity
 
 		PopupWindow popupWindow = new PopupWindow(Settings.this);
 		TextView textView1 = new TextView(Settings.this);
-		float density = getApplicationContext().getResources().
+		float density = Settings.this.getResources().
 		    getDisplayMetrics().density;
 
 		textView1.setBackgroundColor(Color.rgb(232, 234, 246));
@@ -1750,7 +1769,7 @@ public class Settings extends AppCompatActivity
 
 		PopupWindow popupWindow = new PopupWindow(Settings.this);
 		TextView textView1 = new TextView(Settings.this);
-		float density = getApplicationContext().getResources().
+		float density = Settings.this.getResources().
 		    getDisplayMetrics().density;
 
 		textView1.setBackgroundColor(Color.rgb(232, 234, 246));
@@ -1785,7 +1804,7 @@ public class Settings extends AppCompatActivity
 
 		PopupWindow popupWindow = new PopupWindow(Settings.this);
 		TextView textView1 = new TextView(Settings.this);
-		float density = getApplicationContext().getResources().
+		float density = Settings.this.getResources().
 		    getDisplayMetrics().density;
 
 		textView1.setBackgroundColor(Color.rgb(232, 234, 246));
@@ -1824,7 +1843,7 @@ public class Settings extends AppCompatActivity
 
 		PopupWindow popupWindow = new PopupWindow(Settings.this);
 		TextView textView1 = new TextView(Settings.this);
-		float density = getApplicationContext().getResources().
+		float density = Settings.this.getResources().
 		    getDisplayMetrics().density;
 
 		textView1.setBackgroundColor(Color.rgb(232, 234, 246));
@@ -2153,7 +2172,7 @@ public class Settings extends AppCompatActivity
 
 		PopupWindow popupWindow = new PopupWindow(Settings.this);
 		TextView textView1 = new TextView(Settings.this);
-		float density = getApplicationContext().getResources().
+		float density = Settings.this.getResources().
 		    getDisplayMetrics().density;
 
 		textView1.setBackgroundColor(Color.rgb(232, 234, 246));
@@ -2189,7 +2208,7 @@ public class Settings extends AppCompatActivity
 
 		PopupWindow popupWindow = new PopupWindow(Settings.this);
 		TextView textView1 = new TextView(Settings.this);
-		float density = getApplicationContext().getResources().
+		float density = Settings.this.getResources().
 		    getDisplayMetrics().density;
 
 		textView1.setBackgroundColor(Color.rgb(232, 234, 246));
@@ -2321,15 +2340,13 @@ public class Settings extends AppCompatActivity
 		{
 		    if(isChecked)
 		    {
-			SmokeService.startForegroundTask
-			    (getApplicationContext());
+			SmokeService.startForegroundTask(Settings.this);
 			m_databaseHelper.writeSetting
 			    (null, "foreground_service", "true");
 		    }
 		    else
 		    {
-			SmokeService.stopForegroundTask
-			    (getApplicationContext());
+			SmokeService.stopForegroundTask(Settings.this);
 			m_databaseHelper.writeSetting
 			    (null, "foreground_service", "false");
 		    }
@@ -2582,18 +2599,28 @@ public class Settings extends AppCompatActivity
 			m_error = "encryption-key " +
 			    "generatePrivatePublicKeyPair() failure";
 			s_cryptography.resetPKI();
-			return;
+			throw new Exception(m_error);
 		    }
 
 		    if(m_signatureAlgorithm.equals("EC"))
 			chatSignatureKeyPair = Cryptography.
 			    generatePrivatePublicKeyPair
 			    ("EC", Cryptography.PKI_SIGNATURE_KEY_SIZES[0], 0);
+		    else if(m_signatureAlgorithm.equals("RSA"))
+			chatSignatureKeyPair = Cryptography.
+			    generatePrivatePublicKeyPair
+			    ("RSA", Cryptography.PKI_SIGNATURE_KEY_SIZES[1], 0);
+		    else if(m_signatureAlgorithm.equals("Rainbow"))
+			chatSignatureKeyPair = Cryptography.
+			    generatePrivatePublicKeyPair
+			    ("Rainbow",
+			     Cryptography.PKI_SIGNATURE_KEY_SIZES[2],
+			     0);
 		    else
 			chatSignatureKeyPair = Cryptography.
 			    generatePrivatePublicKeyPair
 			    (m_signatureAlgorithm,
-			     Cryptography.PKI_SIGNATURE_KEY_SIZES[1],
+			     Cryptography.PKI_SIGNATURE_KEY_SIZES[3],
 			     0);
 
 		    if(chatSignatureKeyPair == null)
@@ -2601,7 +2628,7 @@ public class Settings extends AppCompatActivity
 			m_error = "signature-key " +
 			    "generatePrivatePublicKeyPair() failure";
 			s_cryptography.resetPKI();
-			return;
+			throw new Exception(m_error);
 		    }
 
 		    /*
@@ -2712,11 +2739,9 @@ public class Settings extends AppCompatActivity
 	    }
 	}
 
-	Thread thread = new Thread
+	new Thread
 	    (new SingleShot(spinner1.getSelectedItem().toString(),
-			    spinner2.getSelectedItem().toString()));
-
-	thread.start();
+			    spinner2.getSelectedItem().toString())).start();
     }
 
     private void releaseResources()
@@ -2795,9 +2820,7 @@ public class Settings extends AppCompatActivity
 	    }
 	}
 
-	Thread thread = new Thread(new SingleShot());
-
-	thread.start();
+	new Thread(new SingleShot()).start();
     }
 
     private void shareKeysOf(final String oid)
@@ -2876,9 +2899,7 @@ public class Settings extends AppCompatActivity
 	    }
 	}
 
-	Thread thread = new Thread(new SingleShot());
-
-	thread.start();
+	new Thread(new SingleShot()).start();
     }
 
     private void shareSipHashId(int oid)
@@ -2961,12 +2982,14 @@ public class Settings extends AppCompatActivity
 		m_name = sipHashIdElement == null ?
 		    "" : sipHashIdElement.m_name;
 		m_string1 = Cryptography.fancyKeyInformationOutput
-		    (m_databaseHelper.
+		    (null,
+		     m_databaseHelper.
 		     publicEncryptionKeyForSipHashId(s_cryptography,
 						     m_sipHashId),
 		     chatEncryptionPublicKeyAlgorithm).trim();
 		m_string2 = Cryptography.fancyKeyInformationOutput
-		    (m_databaseHelper.
+		    (null,
+		     m_databaseHelper.
 		     publicSignatureKeyForSipHashId(s_cryptography,
 						    m_sipHashId),
 		     "").trim();
@@ -2995,7 +3018,7 @@ public class Settings extends AppCompatActivity
 			    (Settings.this);
 			StringBuilder stringBuilder = new StringBuilder();
 			TextView textView1 = new TextView(Settings.this);
-			float density = getApplicationContext().getResources().
+			float density = Settings.this.getResources().
 			    getDisplayMetrics().density;
 
 			if(m_string1.isEmpty() || m_string2.isEmpty())
@@ -3101,9 +3124,7 @@ public class Settings extends AppCompatActivity
 	    }
 	}
 
-	Thread thread = new Thread(new SingleShot(oid));
-
-	thread.start();
+	new Thread(new SingleShot(oid)).start();
     }
 
     private void showFireActivity()
@@ -3235,6 +3256,8 @@ public class Settings extends AppCompatActivity
 		return;
 	    }
 
+	Kernel.getInstance().setWakeLock
+	    (m_databaseHelper.readSetting(null, "always_awake").equals("true"));
 	State.getInstance().setNeighborsEcho
 	    (m_databaseHelper.
 	     readSetting(null, "neighbors_echo").equals("true"));
@@ -3458,7 +3481,7 @@ public class Settings extends AppCompatActivity
 	spinner1.setAdapter(arrayAdapter);
 	array = new String[]
 	{
-	    "ECDSA", "RSA"
+	    "ECDSA", "RSA", "Rainbow", "SPHINCS"
 	};
 	arrayAdapter = new ArrayAdapter<>
 	    (Settings.this, android.R.layout.simple_spinner_item, array);
@@ -3612,9 +3635,6 @@ public class Settings extends AppCompatActivity
 	    findViewById(R.id.overwrite).setVisibility(View.GONE);
 	}
 
-	Kernel.getInstance().setWakeLock
-	    (m_databaseHelper.readSetting(null, "always_awake").equals("true"));
-
 	if(!m_databaseHelper.accountPrepared())
 	{
 	    ActivityCompat.requestPermissions(this, new String[]
@@ -3647,7 +3667,7 @@ public class Settings extends AppCompatActivity
 
 	if(m_receiverRegistered)
 	{
-	    LocalBroadcastManager.getInstance(getApplicationContext()).
+	    LocalBroadcastManager.getInstance(Settings.this).
 		unregisterReceiver(m_receiver);
 	    m_receiverRegistered = false;
 	}
@@ -3685,7 +3705,7 @@ public class Settings extends AppCompatActivity
 	    intentFilter.addAction
 		("org.purple.smoke.state_participants_populated");
 	    intentFilter.addAction("org.purple.smoke.time");
-	    LocalBroadcastManager.getInstance(getApplicationContext()).
+	    LocalBroadcastManager.getInstance(Settings.this).
 		registerReceiver(m_receiver, intentFilter);
 	    m_receiverRegistered = true;
 	}
@@ -3898,7 +3918,7 @@ public class Settings extends AppCompatActivity
 		showChatActivity();
 		return true;
 	    case R.id.action_exit:
-		Smoke.exit(Settings.this);
+		Smoke.exit(true, Settings.this);
 		return true;
 	    case R.id.action_fire:
 		m_databaseHelper.writeSetting(null, "lastActivity", "Fire");

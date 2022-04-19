@@ -205,7 +205,7 @@ public class TcpTlsNeighbor extends Neighbor
 	    m_lastTimeRead.set(System.nanoTime());
 
 	    InetSocketAddress inetSocketAddress = new InetSocketAddress
-		(m_ipAddress, Integer.parseInt(m_ipPort));
+		(m_ipAddress, m_ipPort.get());
 	    SSLContext sslContext = null;
 
 	    if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
@@ -221,6 +221,7 @@ public class TcpTlsNeighbor extends Neighbor
 		    createSocket();
 		m_socket.setReceiveBufferSize(SO_RCVBUF);
 		m_socket.setSendBufferSize(SO_SNDBUF);
+		m_socket.setUseClientMode(true);
 		m_socket.connect(inetSocketAddress, CONNECTION_TIMEOUT);
 	    }
 	    else
@@ -239,6 +240,7 @@ public class TcpTlsNeighbor extends Neighbor
 		socket.connect(inetSocketAddress, CONNECTION_TIMEOUT);
 		m_socket = (SSLSocket) sslContext.getSocketFactory().
 		    createSocket(socket, m_proxyIpAddress, m_proxyPort, true);
+		m_socket.setUseClientMode(true);
 	    }
 
 	    m_socket.addHandshakeCompletedListener
@@ -248,6 +250,7 @@ public class TcpTlsNeighbor extends Neighbor
 		    public void handshakeCompleted
 			(HandshakeCompletedEvent event)
 		    {
+			m_disconnected.set(false);
 			m_handshakeCompleted.set(true);
 			scheduleSend(getCapabilities());
 			scheduleSend(getIdentities());
@@ -263,6 +266,7 @@ public class TcpTlsNeighbor extends Neighbor
 		    }
 		});
 	    m_socket.setEnabledProtocols(m_protocols);
+	    m_socket.setSoLinger(true, 0);
 	    m_socket.setSoTimeout(HANDSHAKE_TIMEOUT); // SSL/TLS process.
 	    m_socket.setTcpNoDelay(true);
 	    m_startTime.set(System.nanoTime());
@@ -321,7 +325,10 @@ public class TcpTlsNeighbor extends Neighbor
 	m_handshakeCompleted = new AtomicBoolean(false);
 	m_isValidCertificate = new AtomicBoolean(false);
 
-	if(Build.VERSION.RELEASE.startsWith("10"))
+	if(Build.VERSION.RELEASE.startsWith("10") ||
+	   Build.VERSION.RELEASE.startsWith("11") ||
+	   Build.VERSION.RELEASE.startsWith("12") ||
+	   Build.VERSION.RELEASE.startsWith("13"))
 	    m_protocols = Cryptography.TLS_NEW;
 	else if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP)
 	    m_protocols = Cryptography.TLS_V1_V12;
@@ -363,7 +370,7 @@ public class TcpTlsNeighbor extends Neighbor
 	    {
 		try
 		{
-		    if(!connected() && !m_aborted.get())
+		    if(!connected() && !m_disconnected.get())
 			synchronized(m_mutex)
 			{
 			    try
@@ -375,7 +382,7 @@ public class TcpTlsNeighbor extends Neighbor
 			    }
 			}
 
-		    if(!connected() || m_aborted.get())
+		    if(!connected() || m_disconnected.get())
 			return;
 		    else if(m_error)
 		    {
@@ -463,9 +470,15 @@ public class TcpTlsNeighbor extends Neighbor
 		    (X509Certificate chain[], String authType)
 		{
 		    if(authType == null || authType.length() == 0)
+		    {
 			m_isValidCertificate.set(false);
+			setError("Empty authentication type.");
+		    }
 		    else if(chain == null || chain.length == 0)
+		    {
 			m_isValidCertificate.set(false);
+			setError("Empty chain.");
+		    }
 		    else
 		    {
 			try
@@ -515,12 +528,16 @@ public class TcpTlsNeighbor extends Neighbor
 		    }
 
 		    if(!m_isValidCertificate.get())
+		    {
+			disconnect();
+
 			synchronized(m_errorMutex)
 			{
 			    if(m_error.length() == 0)
 				m_error.append
 				    ("A generic certificate error occurred.");
 			}
+		    }
 		}
 	    }
 	};

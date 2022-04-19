@@ -19,6 +19,7 @@ Completed Items
 - Asynchronous database writes.
 - Authenticate activity and member menu: menu is empty if Smoke was
   recently initialized.
+- Automatically lock completed Steams. New database column.
 - Automatically set the Fire name if the Alias is changed, unless
   the Fire name is not empty.
 - Banner text may shadow member status in Member Chat.
@@ -49,6 +50,7 @@ Completed Items
 - Create random Steam name on initial write.
 - Custom key streams via context menus.
 - Database method for retrieving neighbor OIDs.
+- Databases and versions; avoid reinstalls.
 - Decide if the State class requires cryptographic data.
 - Define passthrough devices.
 - Delete Fiasco keys from Member activity.
@@ -198,6 +200,7 @@ Completed Items
 - Prevent-sleep option in Settings.
 - Preview attachment.
 - Prompt for neighbor removal.
+- Purge neighbors in a task via Settings.
 - Purging of neighbor queues should occur off of the main thread.
 - Push sent messages from Member Chat to Chat.
 - Receiving requested keys which do not include signatures should be
@@ -294,26 +297,24 @@ Completed Items
 
 Peculiar Items
 
+- Java does not include methods for destroying private containers.
+- Mist, or, SMS.
 - Option for computing Steam digest. Why?
 - Play Store.
+- Puff, or, video on the Echo. Nearly impossible.
 
 Remaining Items
 
+- Add qTESLA signature scheme.
+- Allow unlocking of locked Steams.
 - Android 11 does not tolerate Steam continuation after Smoke exit.
   (ACTION_OPEN_DOCUMENT)
+- Arson.
 - Authenticate via TLS. Authenticate activity.
-- Automatically lock completed Steam. New database column.
 - Brands (profiles).
-- Create a special port (say, 33333). If a neighbor is connected on
-  this port, bind to the device's address and this port. The bind must
-  occur whenever the destination socket is created. Attempt to
-  connect to the neighbor. Two Smoke instances will be able to
-  connect without listening sockets and intermediate servers. See
-  internal QtChess as an example.
-- Databases and versions; avoid reinstalls.
+- Diagram the processes.
 - Include member's name in Share Keys Of, if possible.
-- Java does not include methods for destroying private containers.
-- Mist, or, SMS.
 - Optional cryptographic discovery, per neighbor.
-- Puff, or, video on the Echo. Nearly impossible.
+- Rare event: connected device with a disconnected neighbor representation.
 - SHA3 via BC.
+- Server-less.

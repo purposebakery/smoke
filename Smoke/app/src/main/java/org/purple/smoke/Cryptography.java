@@ -64,11 +64,33 @@ import org.bouncycastle.crypto.params.Argon2Parameters;
 import org.bouncycastle.pqc.asn1.PQCObjectIdentifiers;
 import org.bouncycastle.pqc.jcajce.provider.BouncyCastlePQCProvider;
 import org.bouncycastle.pqc.jcajce.provider.mceliece.BCMcElieceCCA2PublicKey;
+import org.bouncycastle.pqc.jcajce.provider.rainbow.BCRainbowPublicKey;
+import org.bouncycastle.pqc.jcajce.provider.sphincs.BCSphincs256PublicKey;
 import org.bouncycastle.pqc.jcajce.spec.McElieceCCA2KeyGenParameterSpec;
+import org.bouncycastle.pqc.jcajce.spec.RainbowParameterSpec;
+import org.bouncycastle.pqc.jcajce.spec.SPHINCS256KeyGenParameterSpec;
 import org.bouncycastle.util.encoders.Hex;
 
 public class Cryptography
 {
+    public class PKIKeySizeBounds
+    {
+	/*
+	** Private Keys
+	*/
+
+	public final static int PRIVATE_RSA = 2000;
+
+	/*
+	** Public Keys
+	*/
+
+	public final static int PUBLIC_EC = 200;
+	public final static int PUBLIC_MCELIECE = 335000;
+	public final static int PUBLIC_RSA = 600;
+	public final static int PUBLIC_SPHINCS = 1200;
+    };
+
     static
     {
 	Security.addProvider(new BouncyCastlePQCProvider());
@@ -122,6 +144,8 @@ public class Cryptography
     private final static String PBKDF2_ALGORITHM = "PBKDF2WithHmacSHA1";
     private final static String PKI_ECDSA_SIGNATURE_ALGORITHM =
 	"SHA512withECDSA";
+    private final static String PKI_RAINBOW_SIGNATURE_ALGORITHM =
+	"SHA512WITHRainbow";
     private final static String PKI_RSA_ENCRYPTION_ALGORITHM =
 	"RSA/NONE/OAEPwithSHA-512andMGF1Padding";
     private final static String PKI_RSA_SIGNATURE_ALGORITHM =
@@ -130,14 +154,18 @@ public class Cryptography
 	*/
 
 	"SHA512withRSA";
+    private final static String PKI_SPHINCS_SIGNATURE_ALGORITHM =
+	"SHA3-512withSPHINCS256";
     private final static String SYMMETRIC_ALGORITHM = "AES";
     private final static String SYMMETRIC_CIPHER_TRANSFORMATION =
 	"AES/CBC/PKCS7Padding";
+    private final static int ARSON_MAXIMUM_KEYS_PER_PARTICIPANT = 2500;
     private final static int FIRE_STREAM_CREATION_ITERATION_COUNT = 10000;
     private final static int MCELIECE_M[] = {11, 12, 13};
     private final static int MCELIECE_T[] = {50, 68, 118};
     private final static int NUMBER_OF_CORES = Math.max
 	(4, Runtime.getRuntime().availableProcessors());
+    private final static int RAINBOW_VI[] = {68, 104, 140};
     private final static int SHA_1_OUTPUT_SIZE_BITS = 160;
     private final static int SIPHASH_STREAM_CREATION_ITERATION_COUNT = 4096;
     private static Cryptography s_instance = null;
@@ -173,14 +201,16 @@ public class Cryptography
     public final static int IDENTITY_SIZE = 8; // Size of a long.
     public final static int KEY_EXCHANGE_INITIAL_PBKDF2_ITERATION = 1000;
     public final static int PARTICIPANT_CALL_RSA_KEY_SIZE = 3072;
-    public final static int PKI_SIGNATURE_KEY_SIZES[] =
-        {384, 4096}; // ECDSA, RSA
+    public final static int PKI_SIGNATURE_KEY_SIZES[] = {384,  // ECDSA
+							 4096, // RSA
+							 140,  // Rainbow
+							 64};  // SPHINCS
     public final static int PKI_ENCRYPTION_KEY_SIZES[] = {4096}; // RSA
     public final static int SIPHASH_OUTPUT_LENGTH = 16; // Bytes (128 bits).
     public final static int SIPHASH_IDENTITY_LENGTH =
 	DEFAULT_SIPHASH_ID.length();
     public final static int STEAM_FILE_IDENTITY_LENGTH = 48;
-    public final static int STEAM_KEY_EXCHANGE_RSA_KEY_SIZE = 3096;
+    public final static int STEAM_KEY_EXCHANGE_RSA_KEY_SIZE = 3072;
 
     private Cryptography()
     {
@@ -466,8 +496,10 @@ public class Cryptography
 	byte bytes1[] = ozoneEncryptionKey();
 	byte bytes2[] = ozoneMacKey();
 
-	return !(bytes1 == null || bytes1.length != CIPHER_KEY_LENGTH ||
-		 bytes2 == null || bytes2.length != HASH_KEY_LENGTH);
+	return !(bytes1 == null ||
+		 bytes1.length != CIPHER_KEY_LENGTH ||
+		 bytes2 == null ||
+		 bytes2.length != HASH_KEY_LENGTH);
     }
 
     public boolean hasValidOzoneMacKey()
@@ -1038,13 +1070,28 @@ public class Cryptography
 
 	    try
 	    {
-		if(m_chatEncryptionPublicKeyPair.getPrivate().getAlgorithm().
-		   equals("EC"))
+		switch(m_chatEncryptionPublicKeyPair.
+		       getPrivate().getAlgorithm())
+		{
+		case "EC":
 		    signature = Signature.getInstance
 			(PKI_ECDSA_SIGNATURE_ALGORITHM);
-		else
+		    break;
+		case "RSA":
 		    signature = Signature.getInstance
 			(PKI_RSA_SIGNATURE_ALGORITHM);
+		    break;
+		case "Rainbow":
+		    signature = Signature.getInstance
+			(PKI_RAINBOW_SIGNATURE_ALGORITHM,
+			 BouncyCastlePQCProvider.PROVIDER_NAME);
+		    break;
+		default:
+		    signature = Signature.getInstance
+			(PKI_SPHINCS_SIGNATURE_ALGORITHM,
+			 BouncyCastlePQCProvider.PROVIDER_NAME);
+		    break;
+		}
 
 		signature.initSign(m_chatEncryptionPublicKeyPair.getPrivate());
 		signature.update(data);
@@ -1081,13 +1128,27 @@ public class Cryptography
 
 	    try
 	    {
-		if(m_chatSignaturePublicKeyPair.getPrivate().getAlgorithm().
-		   equals("EC"))
+		switch(m_chatSignaturePublicKeyPair.getPrivate().getAlgorithm())
+		{
+		case "EC":
 		    signature = Signature.getInstance
 			(PKI_ECDSA_SIGNATURE_ALGORITHM);
-		else
+		    break;
+		case "RSA":
 		    signature = Signature.getInstance
 			(PKI_RSA_SIGNATURE_ALGORITHM);
+		    break;
+		case "Rainbow":
+		    signature = Signature.getInstance
+			(PKI_RAINBOW_SIGNATURE_ALGORITHM,
+			 BouncyCastlePQCProvider.PROVIDER_NAME);
+		    break;
+		default:
+		    signature = Signature.getInstance
+			(PKI_SPHINCS_SIGNATURE_ALGORITHM,
+			 BouncyCastlePQCProvider.PROVIDER_NAME);
+		    break;
+		}
 
 		signature.initSign(m_chatSignaturePublicKeyPair.getPrivate());
 		signature.update(data);
@@ -1164,7 +1225,6 @@ public class Cryptography
     {
 	if(algorithm.startsWith("McEliece-Fujisaki") ||
 	   algorithm.startsWith("McEliece-Pointcheval"))
-	{
 	    try
 	    {
 		KeyPairGenerator keyPairGenerator = null;
@@ -1193,27 +1253,67 @@ public class Cryptography
 	    catch(Exception exception)
 	    {
 	    }
-
-	    return null;
-	}
 	else
 	{
-	    prepareSecureRandom();
-
-	    try
+	    switch(algorithm)
 	    {
-		KeyPairGenerator keyPairGenerator = KeyPairGenerator.
-		    getInstance(algorithm);
+	    case "EC":
+	    case "ECDSA":
+	    case "RSA":
+		prepareSecureRandom();
 
-		keyPairGenerator.initialize(keySize1, s_secureRandom);
-		return keyPairGenerator.generateKeyPair();
-	    }
-	    catch(Exception exception)
-	    {
-	    }
+		try
+		{
+		    KeyPairGenerator keyPairGenerator = KeyPairGenerator.
+			getInstance(algorithm);
 
-	    return null;
+		    keyPairGenerator.initialize(keySize1, s_secureRandom);
+		    return keyPairGenerator.generateKeyPair();
+		}
+		catch(Exception exception)
+		{
+		}
+
+		break;
+	    case "Rainbow":
+		try
+		{
+		    KeyPairGenerator keyPairGenerator = KeyPairGenerator.
+			getInstance(algorithm,
+				    BouncyCastlePQCProvider.PROVIDER_NAME);
+		    RainbowParameterSpec parameters =
+			new RainbowParameterSpec(RAINBOW_VI);
+
+		    keyPairGenerator.initialize(parameters, s_secureRandom);
+		    return keyPairGenerator.generateKeyPair();
+		}
+		catch(Exception exception)
+		{
+		}
+
+		break;
+	    default:
+		try
+		{
+		    KeyPairGenerator keyPairGenerator = KeyPairGenerator.
+			getInstance("SPHINCS256",
+				    BouncyCastlePQCProvider.PROVIDER_NAME);
+		    SPHINCS256KeyGenParameterSpec parameters =
+			new SPHINCS256KeyGenParameterSpec
+			(SPHINCS256KeyGenParameterSpec.SHA3_256);
+
+		    keyPairGenerator.initialize(parameters, s_secureRandom);
+		    return keyPairGenerator.generateKeyPair();
+		}
+		catch(Exception exception)
+		{
+		}
+
+		break;
+	    }
 	}
+
+	return null;
     }
 
     public static KeyPair generatePrivatePublicKeyPair(String algorithm,
@@ -1228,14 +1328,42 @@ public class Cryptography
 
 	try
 	{
-	    if(algorithm.startsWith("McEliece"))
+	    if(algorithm.startsWith("EC") || algorithm.startsWith("RSA"))
+	    {
+		EncodedKeySpec privateKeySpec = new PKCS8EncodedKeySpec
+		    (privateBytes);
+		EncodedKeySpec publicKeySpec = new X509EncodedKeySpec
+		    (publicBytes);
+		KeyFactory generator = KeyFactory.getInstance(algorithm);
+		PrivateKey privateKey = generator.generatePrivate
+		    (privateKeySpec);
+		PublicKey publicKey = generator.generatePublic(publicKeySpec);
+
+		return new KeyPair(publicKey, privateKey);
+	    }
+	    else if(algorithm.startsWith("McEliece"))
 	    {
 		EncodedKeySpec privateKeySpec = new PKCS8EncodedKeySpec
 		    (privateBytes);
 		EncodedKeySpec publicKeySpec = new X509EncodedKeySpec
 		    (publicBytes);
 		KeyFactory generator = KeyFactory.getInstance
-		    (PQCObjectIdentifiers.mcElieceCca2.getId());
+		    (PQCObjectIdentifiers.mcElieceCca2.getId(),
+		     BouncyCastlePQCProvider.PROVIDER_NAME);
+		PrivateKey privateKey = generator.generatePrivate
+		    (privateKeySpec);
+		PublicKey publicKey = generator.generatePublic(publicKeySpec);
+
+		return new KeyPair(publicKey, privateKey);
+	    }
+	    else if(algorithm.startsWith("Rainbow"))
+	    {
+		EncodedKeySpec privateKeySpec = new PKCS8EncodedKeySpec
+		    (privateBytes);
+		EncodedKeySpec publicKeySpec = new X509EncodedKeySpec
+		    (publicBytes);
+		KeyFactory generator = KeyFactory.getInstance
+		    ("Rainbow", BouncyCastlePQCProvider.PROVIDER_NAME);
 		PrivateKey privateKey = generator.generatePrivate
 		    (privateKeySpec);
 		PublicKey publicKey = generator.generatePublic(publicKeySpec);
@@ -1248,7 +1376,8 @@ public class Cryptography
 		    (privateBytes);
 		EncodedKeySpec publicKeySpec = new X509EncodedKeySpec
 		    (publicBytes);
-		KeyFactory generator = KeyFactory.getInstance(algorithm);
+		KeyFactory generator = KeyFactory.getInstance
+		    ("SPHINCS256", BouncyCastlePQCProvider.PROVIDER_NAME);
 		PrivateKey privateKey = generator.generatePrivate
 		    (privateKeySpec);
 		PublicKey publicKey = generator.generatePublic(publicKeySpec);
@@ -1275,33 +1404,17 @@ public class Cryptography
 
 	try
 	{
-	    EncodedKeySpec privateKeySpec = new PKCS8EncodedKeySpec
-		(privateBytes);
+	    KeyFactory generator = null;
 
-	    for(int i = 0; i < 3; i++)
-		try
-		{
-		    KeyFactory generator = null;
+	    if(privateBytes.length < PKIKeySizeBounds.PRIVATE_RSA)
+		generator = KeyFactory.getInstance("RSA");
+	    else
+		generator = KeyFactory.getInstance
+		    (PQCObjectIdentifiers.mcElieceCca2.getId(),
+		     BouncyCastlePQCProvider.PROVIDER_NAME);
 
-		    switch(i)
-		    {
-		    case 0:
-			generator = KeyFactory.getInstance("EC");
-			break;
-		    case 1:
-			generator = KeyFactory.getInstance
-			    (PQCObjectIdentifiers.mcElieceCca2.getId());
-			break;
-		    default:
-			generator = KeyFactory.getInstance("RSA");
-			break;
-		    }
-
-		    return generator.generatePrivate(privateKeySpec);
-		}
-		catch(Exception exception)
-		{
-		}
+	    return generator.generatePrivate
+		(new PKCS8EncodedKeySpec(privateBytes));
 	}
 	catch(Exception exception)
 	{
@@ -1317,32 +1430,47 @@ public class Cryptography
 
 	try
 	{
-	    EncodedKeySpec publicKeySpec = new X509EncodedKeySpec(publicBytes);
+	    KeyFactory generator = null;
+	    int length = publicBytes.length;
 
-	    for(int i = 0; i < 3; i++)
-		try
-		{
-		    KeyFactory generator = null;
+	    if(length < PKIKeySizeBounds.PUBLIC_EC)
+		generator = KeyFactory.getInstance("EC");
+	    else if(length < PKIKeySizeBounds.PUBLIC_RSA)
+		generator = KeyFactory.getInstance("RSA");
+	    else if(length < PKIKeySizeBounds.PUBLIC_SPHINCS)
+		generator = KeyFactory.getInstance
+		    ("SPHINCS256", BouncyCastlePQCProvider.PROVIDER_NAME);
+	    else if(length < PKIKeySizeBounds.PUBLIC_MCELIECE)
+		generator = KeyFactory.getInstance
+		    (PQCObjectIdentifiers.mcElieceCca2.getId(),
+		     BouncyCastlePQCProvider.PROVIDER_NAME);
+	    else
+		generator = KeyFactory.getInstance
+		    ("Rainbow", BouncyCastlePQCProvider.PROVIDER_NAME);
 
-		    switch(i)
-		    {
-		    case 0:
-			generator = KeyFactory.getInstance("EC");
-			break;
-		    case 1:
-			generator = KeyFactory.getInstance
-			    (PQCObjectIdentifiers.mcElieceCca2.getId());
-			break;
-		    default:
-			generator = KeyFactory.getInstance("RSA");
-			break;
-		    }
+	    return generator.generatePublic
+		(new X509EncodedKeySpec(publicBytes));
+	}
+	catch(Exception exception)
+	{
+	}
 
-		    return generator.generatePublic(publicKeySpec);
-		}
-		catch(Exception exception)
-		{
-		}
+	return null;
+    }
+
+    public static PublicKey publicMcElieceKeyFromBytes(byte publicBytes[])
+    {
+	if(publicBytes == null || publicBytes.length == 0)
+	    return null;
+
+	try
+	{
+	    KeyFactory generator = KeyFactory.getInstance
+		(PQCObjectIdentifiers.mcElieceCca2.getId(),
+		 BouncyCastlePQCProvider.PROVIDER_NAME);
+
+	    return generator.generatePublic
+		(new X509EncodedKeySpec(publicBytes));
 	}
 	catch(Exception exception)
 	{
@@ -1353,15 +1481,15 @@ public class Cryptography
 
     public static PublicKey publicRSAKeyFromBytes(byte publicBytes[])
     {
-	if(publicBytes == null)
+	if(publicBytes == null || publicBytes.length == 0)
 	    return null;
 
 	try
 	{
-	    EncodedKeySpec publicKeySpec = new X509EncodedKeySpec(publicBytes);
 	    KeyFactory generator = KeyFactory.getInstance("RSA");
 
-	    return generator.generatePublic(publicKeySpec);
+	    return generator.generatePublic
+		(new X509EncodedKeySpec(publicBytes));
 	}
 	catch(Exception exception)
 	{
@@ -1491,10 +1619,13 @@ public class Cryptography
 	    return "";
 	else
 	    return fancyKeyInformationOutput
-		(keyPair.getPublic(), algorithmIdentifier);
+		(keyPair.getPrivate(),
+		 keyPair.getPublic(),
+		 algorithmIdentifier);
     }
 
-    public static String fancyKeyInformationOutput(PublicKey publicKey,
+    public static String fancyKeyInformationOutput(PrivateKey privateKey,
+						   PublicKey publicKey,
 						   String algorithmIdentifier)
     {
 	if(publicKey == null)
@@ -1515,7 +1646,14 @@ public class Cryptography
 		stringBuilder.append(")");
 	    }
 
-	    stringBuilder.append("\nDisk Size: ");
+	    if(privateKey != null)
+	    {
+		stringBuilder.append("\nDisk Size (Private): ");
+		stringBuilder.append(privateKey.getEncoded().length);
+		stringBuilder.append(" Bytes");
+	    }
+
+	    stringBuilder.append("\nDisk Size (Public): ");
 	    stringBuilder.append(publicKey.getEncoded().length);
 	    stringBuilder.append(" Bytes\n");
 	    stringBuilder.append("Fingerprint: ");
@@ -1526,8 +1664,10 @@ public class Cryptography
 	    stringBuilder.append(publicKey.getAlgorithm());
 
 	    if(algorithm.equals("RSA") ||
+	       algorithm.equals("Rainbow") ||
 	       algorithm.startsWith("EC") ||
-	       algorithm.startsWith("McEliece"))
+	       algorithm.startsWith("McEliece") ||
+	       algorithm.startsWith("SPHINCS"))
 		try
 		{
 		    switch(algorithm)
@@ -1567,7 +1707,23 @@ public class Cryptography
 				append(rsaPublicKey.getModulus().bitLength());
 
 			break;
+		    case "Rainbow":
+			BCRainbowPublicKey rainbowPublicKey =
+			    (BCRainbowPublicKey) publicKey;
+
+			if(rainbowPublicKey != null)
+			    stringBuilder.append("\n").append("n = ").
+				append(rainbowPublicKey.
+				       getCoeffSingular()[0].length);
+
+			break;
 		    default:
+			BCSphincs256PublicKey sphincsPublicKey =
+			    (BCSphincs256PublicKey) publicKey;
+
+			if(sphincsPublicKey != null)
+			    stringBuilder.append("\n").append("Size: 512");
+
 			break;
 		    }
 		}
@@ -1640,6 +1796,10 @@ public class Cryptography
 	    else if(asn1ObjectIdentifier.
 		    equals(PQCObjectIdentifiers.mcEliecePointcheval))
 		return "McEliece-Pointcheval";
+	    else if(publicKey instanceof BCRainbowPublicKey)
+		return "Rainbow";
+	    else if(publicKey instanceof BCSphincs256PublicKey)
+		return "SPHINCS";
 	    else if(publicKey.getAlgorithm().equals("EC"))
 		return "ECDSA";
 	    else
@@ -1676,7 +1836,7 @@ public class Cryptography
 		SipHash sipHash = new SipHash();
 		long value[] = sipHash.hmac(bytes, key, SIPHASH_OUTPUT_LENGTH);
 
-		if(value.equals(new long[] {0L, 0L}))
+		if(Arrays.equals(new long[] {0L, 0L}, value))
 		    return "";
 
 		bytes = Miscellaneous.longArrayToByteArray(value);
@@ -1716,27 +1876,41 @@ public class Cryptography
 	if(bytes == null || data == null || publicKey == null)
 	    return false;
 
-	Signature signature = null;
-	boolean ok = false;
-
 	try
 	{
-	    if(publicKey.getAlgorithm().equals("EC"))
+	    Signature signature = null;
+
+	    switch(publicKey.getAlgorithm())
+	    {
+	    case "EC":
 		signature = Signature.getInstance
 		    (PKI_ECDSA_SIGNATURE_ALGORITHM);
-	    else
-		signature = Signature.getInstance(PKI_RSA_SIGNATURE_ALGORITHM);
+		break;
+	    case "RSA":
+		signature = Signature.getInstance
+		    (PKI_RSA_SIGNATURE_ALGORITHM);
+		break;
+	    case "Rainbow":
+		signature = Signature.getInstance
+		    (PKI_RAINBOW_SIGNATURE_ALGORITHM,
+		     BouncyCastlePQCProvider.PROVIDER_NAME);
+		break;
+	    default:
+		signature = Signature.getInstance
+		    (PKI_SPHINCS_SIGNATURE_ALGORITHM,
+		     BouncyCastlePQCProvider.PROVIDER_NAME);
+		break;
+	    }
 
 	    signature.initVerify(publicKey);
 	    signature.update(data);
-	    ok = signature.verify(bytes);
+	    return signature.verify(bytes);
 	}
 	catch(Exception exception)
 	{
-	    return false;
 	}
 
-	return ok;
+	return false;
     }
 
     public static byte[] aes256KeyBytes()
@@ -2236,7 +2410,7 @@ public class Cryptography
 		SipHash sipHash = new SipHash();
 		long value[] = sipHash.hmac(bytes, key, SIPHASH_OUTPUT_LENGTH);
 
-		if(value.equals(new long[] {0L, 0L}))
+		if(Arrays.equals(new long[] {0L, 0L}, value))
 		    return false;
 
 		bytes = Miscellaneous.longArrayToByteArray(value);
@@ -2589,7 +2763,16 @@ public class Cryptography
 
     public void setChatEncryptionPublicKeyAlgorithm(String algorithm)
     {
-	m_chatEncryptionPublicKeyAlgorithm = algorithm;
+	m_chatEncryptionPublicKeyPairMutex.writeLock().lock();
+
+	try
+	{
+	    m_chatEncryptionPublicKeyAlgorithm = algorithm;
+	}
+	finally
+	{
+	    m_chatEncryptionPublicKeyPairMutex.writeLock().unlock();
+	}
     }
 
     public void setChatEncryptionPublicKeyPair(KeyPair keyPair)

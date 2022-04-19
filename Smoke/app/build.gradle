@@ -10,16 +10,10 @@ android {
         applicationId "org.purple.smoke"
         minSdkVersion 19
         targetSdkVersion 31
-        versionCode 20210909
-        versionName "2021.09.09"
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        versionCode 20220410
+        versionName "2022.04.10"
         multiDexEnabled = true
-
-
-        // BuildConfig
-        buildConfigField "long", "BUILD_TIME", System.currentTimeMillis() + "L"
-        buildConfigField "String", "SMOKE_IPV4_HOST", "\"127.0.0.1\""
-        buildConfigField "String", "SMOKE_IPV4_PORT", "\"4710\""
     }
 
     buildTypes {
@@ -63,12 +57,11 @@ dependencies {
     implementation 'androidx.recyclerview:recyclerview:1.2.1' // https://mvnrepository.com/artifact/androidx.recyclerview/recyclerview
     implementation 'androidx.multidex:multidex:2.0.1' // https://mvnrepository.com/artifact/androidx.multidex/multidex
 
-
     // Google
     implementation 'com.google.android.material:material:1.4.0' // https://mvnrepository.com/artifact/com.google.android.material/material
 
-    implementation fileTree(dir: 'libs', include: ['*.jar'])
-    implementation files('libs/bcprov-ext-jdk15on-169.jar')
+    // Other
+    implementation 'org.bouncycastle:bcprov-jdk15on:1.70'
 }
 
 tasks.withType(JavaCompile) {

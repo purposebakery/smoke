@@ -152,6 +152,7 @@ public class Chat extends AppCompatActivity
     }
 
     private ChatBroadcastReceiver m_receiver = null;
+    private Ringtone m_ringtone = null;
     private ScheduledExecutorService m_scheduler = null;
     private boolean m_receiverRegistered = false;
     private final static Cryptography s_cryptography =
@@ -313,13 +314,15 @@ public class Chat extends AppCompatActivity
 	if(!viaChatLog)
 	    try
 	    {
-		Ringtone ringtone = null;
+		if(m_ringtone != null)
+		    m_ringtone.stop();
+
 		Uri notification = RingtoneManager.getDefaultUri
 		    (RingtoneManager.TYPE_NOTIFICATION);
 
-		ringtone = RingtoneManager.getRingtone
-		    (getApplicationContext(), notification);
-		ringtone.play();
+		m_ringtone = RingtoneManager.getRingtone
+		    (Chat.this, notification);
+		m_ringtone.play();
 	    }
 	    catch(Exception exception)
 	    {
@@ -1153,7 +1156,7 @@ public class Chat extends AppCompatActivity
 
 	if(m_receiverRegistered)
 	{
-	    LocalBroadcastManager.getInstance(getApplicationContext()).
+	    LocalBroadcastManager.getInstance(Chat.this).
 		unregisterReceiver(m_receiver);
 	    m_receiverRegistered = false;
 	}
@@ -1183,7 +1186,7 @@ public class Chat extends AppCompatActivity
 	    intentFilter.addAction
 		("org.purple.smoke.state_participants_populated");
 	    intentFilter.addAction("org.purple.smoke.time");
-	    LocalBroadcastManager.getInstance(getApplicationContext()).
+	    LocalBroadcastManager.getInstance(Chat.this).
 		registerReceiver(m_receiver, intentFilter);
 	    m_receiverRegistered = true;
 	}
@@ -1513,7 +1516,7 @@ public class Chat extends AppCompatActivity
 	    switch(itemId)
 	    {
 	    case R.id.action_exit:
-		Smoke.exit(Chat.this);
+		Smoke.exit(true, Chat.this);
 		return true;
 	    case R.id.action_fire:
 	    {

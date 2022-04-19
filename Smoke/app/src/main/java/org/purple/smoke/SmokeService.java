@@ -92,6 +92,13 @@ public class SmokeService extends Service
     }
 
     @Override
+    public boolean stopService(Intent service)
+    {
+	stop();
+	return super.stopService(service);
+    }
+
+    @Override
     public int onStartCommand(Intent intent, int flags, int startId)
     {
 	if(intent != null && intent.getAction() != null)
@@ -129,7 +136,7 @@ public class SmokeService extends Service
 	Intent intent = new Intent(context, SmokeService.class);
 
 	intent.setAction("stop");
-	context.startService(intent);
+	context.stopService(intent);
     }
 
     @Override

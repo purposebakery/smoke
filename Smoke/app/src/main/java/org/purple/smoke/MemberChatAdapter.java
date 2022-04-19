@@ -34,7 +34,6 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.View.OnCreateContextMenuListener;
 import android.view.ViewGroup;
-import android.widget.AdapterView.AdapterContextMenuInfo;
 
 public class MemberChatAdapter extends RecyclerView.Adapter
 				       <MemberChatAdapter.ViewHolder>
@@ -51,7 +50,6 @@ public class MemberChatAdapter extends RecyclerView.Adapter
     {
 	ChatBubble m_chatBubble = null;
 	String m_name = "";
-	String m_sipHashId = "";
 	boolean m_canResend = false;
 	boolean m_hasAttachment = false;
 	int m_position = -1;
@@ -62,7 +60,6 @@ public class MemberChatAdapter extends RecyclerView.Adapter
 	    chatBubble.view().setOnCreateContextMenuListener(this);
 	    m_chatBubble = chatBubble;
 	    m_name = s_database.nameFromSipHashId(s_cryptography, sipHashId);
-	    m_sipHashId = sipHashId;
         }
 
 	public void onCreateContextMenu(ContextMenu menu,
@@ -133,7 +130,9 @@ public class MemberChatAdapter extends RecyclerView.Adapter
 		m_chatBubble.setName(ChatBubble.Locations.LEFT, "?");
 		m_chatBubble.setText
 		    (ChatBubble.Locations.LEFT,
-		     "Smoke malfunction! The database entry is zero!\n");
+		     "Smoke malfunction! The database entry at " +
+		     position +
+		     " is zero!\n");
 		m_hasAttachment = false;
 		m_position = position;
 		return;
